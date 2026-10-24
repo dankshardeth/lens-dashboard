@@ -10,19 +10,6 @@ A static, free-to-run dashboard of Lens Protocol (Lens Chain) activity:
 - periods: 1 day (yesterday), 7, 30 and 90 days
 - filters: hide spam apps, and a minimum Lens account score (any, 1+, 5,000+, 9,000+)
 
-## How it works
-
-```
-Lens API (api.lens.xyz)  →  collect.mjs  →  data/days/*.json  →  site/data.json  →  site/index.html
-```
-
-- **Source:** the public Lens GraphQL API. Free, no API key, live data.
-  (The Lens BigQuery dataset has not been updated since 26 February 2026, so it is not used.)
-- **`collect.mjs`:** Node 18+, no dependencies. Each run re-fetches yesterday and today, fills in any missing days,
-  and refreshes Lens account scores once a day. The first run backfills the full 90 days.
-- **`data/days/`:** one file per day with counts per app × account × content type. The workflow commits these back to the repo.
-- **GitHub Actions + Pages:** updates every 3 hours and publishes the site. Both are free for public repositories.
-
 ## Methodology
 
 - **Client** = the Lens app recorded on Lens Chain with each piece of content. The addresses of the four main clients are at the top of `collect.mjs`.
