@@ -170,8 +170,8 @@ export function buildData({ agg, handles, appNames, scores = {}, days, tz, gener
   };
 }
 
-// Per-account data for the searchable accounts section (site/users.json).
-// users: [address, handle, score, [post, comment, quote, repost], [appIdx, n, ...], [dayIdx, n, ...]], most active first.
+// Per-account data for the accounts table and account details (site/users.json).
+// users: [address, handle, score, [dayIdx, appIdx, kindIdx, n, ...]], most active first.
 export function buildUsers({ agg, handles, appNames, scores = {}, days }) {
   const appIdx = {}, apps = [];
   const nameOf = a => HIGHLIGHT[a] || appNames[a] || SPAM_APPS[a] || (a === "none" ? "Unknown / no app" : a.slice(0, 8) + "…" + a.slice(-4));
@@ -180,18 +180,15 @@ export function buildUsers({ agg, handles, appNames, scores = {}, days }) {
     for (const [k, n] of Object.entries(agg[d] || {})) {
       const [app, acct, kind] = k.split("|");
       if (!(app in appIdx)) { appIdx[app] = apps.length; apps.push([app, nameOf(app), !!SPAM_APPS[app]]); }
-      const x = (u[acct] ||= { t: [0, 0, 0, 0], a: {}, d: {} });
-      x.t[KINDS.indexOf(kind)] += n;
-      x.a[appIdx[app]] = (x.a[appIdx[app]] || 0) + n;
-      x.d[i] = (x.d[i] || 0) + n;
+      const x = (u[acct] ||= { total: 0, e: [] });
+      x.e.push(i, appIdx[app], KINDS.indexOf(kind), n);
+      x.total += n;
     }
   });
   const users = Object.entries(u)
-    .map(([acct, x]) => [acct, handles[acct] || null, typeof scores[acct] === "number" ? scores[acct] : null, x.t,
-      Object.entries(x.a).sort((p, q) => q[1] - p[1]).flat().map(Number),
-      Object.entries(x.d).flat().map(Number)])
-    .sort((p, q) => (q[3][0] + q[3][1] + q[3][2] + q[3][3]) - (p[3][0] + p[3][1] + p[3][2] + p[3][3]));
-  return { days, apps, users };
+    .sort((p, q) => q[1].total - p[1].total)
+    .map(([acct, x]) => [acct, handles[acct] || null, typeof scores[acct] === "number" ? scores[acct] : null, x.e]);
+  return { v: 2, days, apps, users };
 }
 
 function buildVariant({ agg, handles, appNames, days, keep }) {
