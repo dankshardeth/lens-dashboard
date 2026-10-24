@@ -109,6 +109,10 @@ dialog#user::backdrop{background:rgba(0,0,0,.45)}
 .ulinks a{color:var(--accent);text-decoration:none}
 .ulinks a:hover{text-decoration:underline}
 .muted{color:var(--muted)}
+.sortbtn{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;white-space:nowrap}
+.sortbtn:hover,.sortbtn.on{color:var(--ink)}
+.sortbtn.on{font-weight:600}
+.sortbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 </style>
 </head>
 <body>
@@ -174,16 +178,11 @@ dialog#user::backdrop{background:rgba(0,0,0,.45)}
   </div>
 
   <div class="card">
-    <div class="head"><div><h2>Top 10 most active accounts</h2><div class="sub" id="topSub"></div></div></div>
-    <div class="scroll"><table id="top"></table></div>
-  </div>
-
-  <div class="card" id="accounts">
     <div class="head">
-      <div><h2>Accounts</h2><div class="sub" id="usersSub">Loading accounts…</div></div>
+      <div><h2>Most active accounts</h2><div class="sub" id="topSub"></div></div>
       <input id="userSearch" class="search" type="search" placeholder="Search by username or address" aria-label="Search accounts" autocomplete="off">
     </div>
-    <div class="scroll"><table id="users"></table></div>
+    <div class="scroll"><table id="top"></table></div>
   </div>
 
   <div class="card">
@@ -333,7 +332,7 @@ function renderCharts() {
 
 }
 
-function renderTop() {
+function renderTopFallback() {
   const list = D.top_users[String(state.range)]?.[state.app] || [];
   document.getElementById("topSub").textContent = `${appName(state.app)} · ${periodText(state.range)} · ranked by all own content`;
   if (!list.length) { document.getElementById("top").innerHTML = `<tr><td class="empty">No data</td></tr>`; return; }
@@ -368,38 +367,66 @@ function renderApps() {
       <td>${fmt(x.active)}</td></tr>`).join("") + "</tbody>";
 }
 
-// ---------------------------------------------------------------- accounts section
+// ---------------------------------------------------------------- accounts table (sortable, searchable)
 let U = null, userChart = null;
 async function loadUsers() {
   if (U) return U;
   try { U = await (await fetch("users.json", { cache: "no-store" })).json(); }
   catch (e) { U = { days: [], apps: [], users: [], failed: true }; }
+  if (U.v !== 2 || !Array.isArray(U.users)) U = { days: [], apps: [], users: [], failed: true };
   U.byAddr = new Map(U.users.map(u => [u[0], u]));
+  U.dayOffset = U.days && U.days.length ? Math.max(0, D.days.indexOf(U.days[0])) : 0;
   return U;
 }
-const uTotal = u => u[3][0] + u[3][1] + u[3][2] + u[3][3];
 const uName = u => u[1] ? "@" + u[1] : u[0].slice(0, 6) + "…" + u[0].slice(-4);
-function uMainApp(u) { const i = u[4][0]; return i == null ? "–" : (U.apps[i] || [])[1] || "–"; }
-function uVisible(u) {
-  if (u[2] != null && u[2] < state.minScore) return false;
-  if (state.hideSpam) { let ok = 0; for (let i = 0; i < u[4].length; i += 2) if (!(U.apps[u[4][i]] || [])[2]) ok += u[4][i + 1]; if (!ok) return false; }
-  return true;
+const SORT_COLS = [
+  ["account", "Account", "l"], ["score", "Score"], ["total", "Total"], ["post", "Posts"], ["comment", "Comments"],
+  ["quote", "Quotes"], ["repost", "Reposts"], ["days", "Active days"], ["client", "Main client", "l"]
+];
+const tableState = { sort: "total", dir: -1, limit: 10 };
+function accountRows() {
+  const [lo, hi] = win(state.range);
+  const shownApps = new Set(D.apps.map(a => a.key));
+  const rows = [];
+  for (const u of U.users) {
+    if (u[2] != null && u[2] < state.minScore) continue;
+    const e = u[3], c = [0, 0, 0, 0], perApp = {}, days = new Set();
+    for (let i = 0; i < e.length; i += 4) {
+      const d = e[i] + U.dayOffset; if (d < lo || d >= hi) continue;
+      const app = U.apps[e[i + 1]]; if (!app) continue;
+      if (state.hideSpam && app[2]) continue;
+      if (state.app !== "all" && (state.app === "other" ? shownApps.has(app[0]) : app[0] !== state.app)) continue;
+      c[e[i + 2]] += e[i + 3]; perApp[app[1]] = (perApp[app[1]] || 0) + e[i + 3]; days.add(d);
+    }
+    const total = c[0] + c[1] + c[2] + c[3]; if (!total) continue;
+    const client = Object.entries(perApp).sort((a, b) => b[1] - a[1])[0][0];
+    rows.push({ u, account: (u[1] || u[0]).toLowerCase(), score: u[2] ?? -1, total, post: c[0], comment: c[1], quote: c[2], repost: c[3], days: days.size, client });
+  }
+  return rows;
 }
-function renderUsers() {
-  const sub = document.getElementById("usersSub"), tbl = document.getElementById("users");
-  if (!U) return;
-  if (U.failed || !U.users.length) { sub.textContent = "Account data is not available yet."; tbl.innerHTML = ""; return; }
+function renderTop() {
+  const sub = document.getElementById("topSub"), tbl = document.getElementById("top");
+  if (!U || U.failed || !U.users.length) { renderTopFallback(); return; }
   const q = document.getElementById("userSearch").value.trim().toLowerCase().replace(/^@/, "");
-  const list = U.users.filter(u => uVisible(u) && (!q || (u[1] || "").toLowerCase().includes(q) || u[0].startsWith(q)));
-  sub.textContent = `${fmt(list.length)} accounts${q ? " match" : ""} · activity in the last ${U.days.length - 1} days and today · filters apply · click a name for details`;
-  if (!list.length) { tbl.innerHTML = `<tr><td class="empty">No account found</td></tr>`; return; }
-  tbl.innerHTML = `<thead><tr><th class="rank">#</th><th class="l">Account</th><th>Score</th><th>Total</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th><th class="l">Main client</th></tr></thead><tbody>` +
-    list.slice(0, 25).map((u, i) => `<tr><td class="rank">${i + 1}</td>
-      <td class="l"><button class="linkbtn" data-addr="${esc(u[0])}">${esc(uName(u))}</button></td>
-      <td>${u[2] == null ? "–" : fmt(u[2])}</td><td><b>${fmt(uTotal(u))}</b></td>
-      <td>${fmt(u[3][0])}</td><td>${fmt(u[3][1])}</td><td>${fmt(u[3][2])}</td><td>${fmt(u[3][3])}</td>
-      <td class="l">${esc(uMainApp(u))}</td></tr>`).join("") + "</tbody>" +
-    (list.length > 25 ? `<tfoot><tr><td colspan="9" class="muted" style="text-align:left">Showing the 25 most active of ${fmt(list.length)}. Search to find others.</td></tr></tfoot>` : "");
+  let rows = accountRows();
+  if (q) rows = rows.filter(r => (r.u[1] || "").toLowerCase().includes(q) || r.u[0].startsWith(q));
+  const k = tableState.sort, dir = tableState.dir;
+  rows.sort((a, b) => (typeof a[k] === "string" ? a[k].localeCompare(b[k]) : a[k] - b[k]) * dir || b.total - a.total);
+  sub.textContent = `${appName(state.app)} · ${periodText(state.range)} · ${fmt(rows.length)} accounts${q ? " match" : ""} · click a column to sort, a name for details`;
+  if (!rows.length) { tbl.innerHTML = `<tr><td class="empty">No account found</td></tr>`; return; }
+  const shown = rows.slice(0, tableState.limit);
+  const max = Math.max(...shown.map(r => r.total), 1);
+  const th = ([key, label, cls]) => `<th class="${cls || ""}"><button class="sortbtn${k === key ? " on" : ""}" data-sort="${key}" aria-sort="${k === key ? (dir < 0 ? "descending" : "ascending") : "none"}">${label}${k === key ? (dir < 0 ? " ▼" : " ▲") : ""}</button></th>`;
+  tbl.innerHTML = `<thead><tr><th class="rank">#</th>${SORT_COLS.map(th).join("")}<th class="l" style="width:14%"></th></tr></thead><tbody>` +
+    shown.map((r, i) => {
+      const u = r.u, href = u[1] ? `https://hey.xyz/u/${encodeURIComponent(u[1])}` : `https://explorer.lens.xyz/address/${u[0]}`;
+      return `<tr><td class="rank">${i + 1}</td>
+        <td class="l"><div class="who"><span><button class="linkbtn" data-addr="${esc(u[0])}">${esc(uName(u))}</button><a class="ext" href="${href}" target="_blank" rel="noopener" aria-label="Open profile">↗</a></span><small>${esc(u[0].slice(0, 10))}…</small></div></td>
+        <td>${u[2] == null ? "–" : fmt(u[2])}</td><td><b>${fmt(r.total)}</b></td><td>${fmt(r.post)}</td><td>${fmt(r.comment)}</td><td>${fmt(r.quote)}</td><td>${fmt(r.repost)}</td>
+        <td>${fmt(r.days)}</td><td class="l">${esc(r.client)}</td>
+        <td class="l"><div style="height:6px;border-radius:3px;background:var(--grid)"><div style="height:6px;border-radius:3px;width:${(r.total / max * 100).toFixed(1)}%;background:var(--accent)"></div></div></td></tr>`;
+    }).join("") + "</tbody>" +
+    `<tfoot><tr><td colspan="11" class="muted" style="text-align:left">Showing ${fmt(shown.length)} of ${fmt(rows.length)} · show ${[10, 25, 100].map(n => `<button class="sortbtn${tableState.limit === n ? " on" : ""}" data-limit="${n}">${n}</button>`).join(" ")}</td></tr></tfoot>`;
 }
 
 const LENS_Q = `query U($a: EvmAddress!){
@@ -409,15 +436,16 @@ const LENS_Q = `query U($a: EvmAddress!){
 async function openUser(addr) {
   addr = addr.toLowerCase();
   await loadUsers();
-  const u = U.byAddr.get(addr) || [addr, null, null, [0, 0, 0, 0], [], []];
+  const u = U.byAddr.get(addr) || [addr, null, null, []];
   const dlg = document.getElementById("user"), body = document.getElementById("userBody");
   const days = U.days.length ? U.days : D.days;
-  const daily = Array(days.length).fill(0); for (let i = 0; i < u[5].length; i += 2) daily[u[5][i]] = u[5][i + 1];
+  const daily = Array(days.length).fill(0), t = [0, 0, 0, 0], pa = {};
+  for (let i = 0; i < u[3].length; i += 4) { daily[u[3][i]] += u[3][i + 3]; t[u[3][i + 2]] += u[3][i + 3]; pa[u[3][i + 1]] = (pa[u[3][i + 1]] || 0) + u[3][i + 3]; }
   const active = daily.map((n, i) => n ? i : -1).filter(i => i >= 0);
-  const tot = uTotal(u);
+  const tot = t[0] + t[1] + t[2] + t[3];
   const hey = u[1] ? `https://hey.xyz/u/${encodeURIComponent(u[1])}` : null;
   const stat = (v, k) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`;
-  const appRows = []; for (let i = 0; i < u[4].length; i += 2) appRows.push([U.apps[u[4][i]] || ["", "?"], u[4][i + 1]]);
+  const appRows = Object.entries(pa).sort((a, b) => b[1] - a[1]).map(([i, n]) => [U.apps[i] || ["", "?"], n]);
   const maxApp = appRows.length ? appRows[0][1] : 1;
   body.innerHTML = `
     <button class="close" aria-label="Close">×</button>
@@ -433,7 +461,7 @@ async function openUser(addr) {
     <h3>All-time on Lens (live from the Lens API)</h3>
     <div class="stats" id="uLive"><div class="stat"><b>…</b><span>loading</span></div></div>
     <h3>Last ${days.length - 1} days and today (this dashboard)</h3>
-    <div class="stats">${stat(fmt(tot), "Total")}${stat(fmt(u[3][0]), "Posts")}${stat(fmt(u[3][1]), "Comments")}${stat(fmt(u[3][2]), "Quotes")}${stat(fmt(u[3][3]), "Reposts")}${stat(fmt(active.length), "Active days")}${stat(active.length ? days[active[0]].slice(5).replace("-", ".") : "–", "First active")}${stat(active.length ? days[active.at(-1)].slice(5).replace("-", ".") : "–", "Last active")}</div>
+    <div class="stats">${stat(fmt(tot), "Total")}${stat(fmt(t[0]), "Posts")}${stat(fmt(t[1]), "Comments")}${stat(fmt(t[2]), "Quotes")}${stat(fmt(t[3]), "Reposts")}${stat(fmt(active.length), "Active days")}${stat(active.length ? days[active[0]].slice(5).replace("-", ".") : "–", "First active")}${stat(active.length ? days[active.at(-1)].slice(5).replace("-", ".") : "–", "Last active")}</div>
     ${appRows.length ? `<h3>Clients used</h3><div class="bars">${appRows.map(([a, n]) => `<div class="row"><span>${esc(a[1])}${a[2] ? ' <span class="chip">spam</span>' : ""}</span><div class="track"><div class="fill" style="width:${(n / maxApp * 100).toFixed(1)}%;background:${D.apps.some(x => x.key === a[0]) ? appColor(a[0]) : css("--other")}"></div></div><span>${fmt(n)}</span></div>`).join("")}</div>` : ""}
     <h3>Daily activity</h3>
     <div class="chart" style="height:200px"><canvas id="userChart"></canvas></div>`;
@@ -486,7 +514,7 @@ function renderAll() {
   document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.range)));
   document.getElementById("app").value = state.app;
   document.getElementById("kind").value = state.kind;
-  renderTiles(); renderCharts(); renderTop(); renderApps(); renderUsers();
+  renderTiles(); renderCharts(); renderTop(); renderApps();
 }
 
 async function init() {
@@ -532,13 +560,18 @@ async function init() {
     Scores are current values, so a new real user can start low and rise later.
     ${D.accounts_by_min_score ? `Accounts in the window: ${fmt(D.accounts_total)} in total, ${fmt(D.accounts_by_min_score[1])} with score 1+, ${fmt(D.accounts_by_min_score[5000])} with 5,000+, ${fmt(D.accounts_by_min_score[9000])} with 9,000+.` : ""}`;
 
-  document.getElementById("userSearch").oninput = () => { loadUsers().then(renderUsers); };
-  document.addEventListener("click", e => { const b = e.target.closest("[data-addr]"); if (b) { e.preventDefault(); openUser(b.dataset.addr); } });
+  document.getElementById("userSearch").oninput = () => { loadUsers().then(renderTop); };
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-addr]"); if (b) { e.preventDefault(); openUser(b.dataset.addr); return; }
+    const so = e.target.closest("[data-sort]");
+    if (so) { const key = so.dataset.sort; if (tableState.sort === key) tableState.dir *= -1; else { tableState.sort = key; tableState.dir = key === "account" || key === "client" ? 1 : -1; } renderTop(); return; }
+    const li = e.target.closest("[data-limit]"); if (li) { tableState.limit = +li.dataset.limit; renderTop(); }
+  });
   document.getElementById("user").addEventListener("click", e => { if (e.target.id === "user") e.target.close(); });
 
   renderAll();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
-  loadUsers().then(renderUsers);
+  loadUsers().then(renderTop);
 }
 init();
 </script>
