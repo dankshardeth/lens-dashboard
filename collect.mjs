@@ -37,13 +37,11 @@ export const SPAM_APPS = {
   "0x840f9759d25ca59b025d95e43ed0aafccb1137c7": "Gallery Publisher", // mass link spam from throwaway accounts
 };
 
-// Filter combinations precomputed for the dashboard
-export const VARIANTS = {
-  all:      { spam: true,  zero: true },
-  nospam:   { spam: false, zero: true },
-  noscore0: { spam: true,  zero: false },
-  clean:    { spam: false, zero: false },
-};
+// Filter combinations precomputed for the dashboard: spam apps shown (s) or hidden (n) x minimum account score.
+// Lens account score: 1..10000, an ML estimate of how likely the account is genuine (0 = not scored / flagged).
+export const MIN_SCORES = [0, 1, 5000, 9000];
+export const VARIANTS = Object.fromEntries([true, false].flatMap(spam =>
+  MIN_SCORES.map(min => [(spam ? "s" : "n") + min, { spam, min }])));
 
 const POSTS_Q = `query P($c: Cursor){ posts(request:{pageSize: FIFTY, cursor: $c, filter:{postTypes:[ROOT,COMMENT,QUOTE,REPOST]}}){
   items{ __typename
@@ -150,7 +148,7 @@ export async function fetchAppNames(addrs) {
 export function buildData({ agg, handles, appNames, scores = {}, days, tz, generatedAt }) {
   const variants = {};
   for (const [name, v] of Object.entries(VARIANTS)) {
-    const keep = (app, acct) => (v.spam || !SPAM_APPS[app]) && (v.zero || scores[acct] !== 0);
+    const keep = (app, acct) => (v.spam || !SPAM_APPS[app]) && (typeof scores[acct] !== "number" || scores[acct] >= v.min);
     variants[name] = buildVariant({ agg, handles, appNames, days, keep });
   }
   const accts = new Set(); for (const d of days) for (const k of Object.keys(agg[d] || {})) accts.add(k.split("|")[1]);
@@ -165,6 +163,8 @@ export function buildData({ agg, handles, appNames, scores = {}, days, tz, gener
     accounts_total: accts.size,
     accounts_score_known: known.length,
     accounts_score_zero: known.filter(a => scores[a] === 0).length,
+    accounts_by_min_score: Object.fromEntries(MIN_SCORES.map(m => [m, known.filter(a => scores[a] >= m).length])),
+    min_scores: MIN_SCORES,
     top_format: ["address", "handle", "post", "comment", "quote", "repost"],
     variants,
   };
