@@ -431,7 +431,7 @@ function renderTop() {
 
 const LENS_Q = `query U($a: EvmAddress!){
   account(request:{address:$a}){ createdAt score username{ localName } metadata{ name bio picture } }
-  accountStats(request:{account:$a}){ graphFollowStats{ followers following } feedStats{ posts comments reposts quotes } } }`;
+  accountStats(request:{account:$a}){ graphFollowStats{ followers following } feedStats{ posts comments reposts quotes reactions reacted } } }`;
 
 async function openUser(addr) {
   addr = addr.toLowerCase();
@@ -485,7 +485,7 @@ async function openUser(addr) {
       if (pic && /^https:\/\//.test(pic)) { const img = document.createElement("img"); img.className = "avatar"; img.alt = ""; img.src = pic; img.onerror = () => img.replaceWith(document.getElementById("uAvatar") || img); const av = document.getElementById("uAvatar"); if (av) av.replaceWith(img); }
     }
     const f = st?.graphFollowStats || {}, fs = st?.feedStats || {};
-    document.getElementById("uLive").innerHTML = stat(fmt(f.followers), "Followers") + stat(fmt(f.following), "Following") + stat(fmt(fs.posts), "Posts") + stat(fmt(fs.comments), "Comments") + stat(fmt(fs.quotes), "Quotes") + stat(fmt(fs.reposts), "Reposts") + stat(a?.createdAt ? a.createdAt.slice(0, 10) : "–", "Account created");
+    document.getElementById("uLive").innerHTML = stat(fmt(f.followers), "Followers") + stat(fmt(f.following), "Following") + stat(fmt(fs.posts), "Posts") + stat(fmt(fs.comments), "Comments") + stat(fmt(fs.quotes), "Quotes") + stat(fmt(fs.reposts), "Reposts") + stat(fmt(fs.reactions), "Likes received") + stat(fmt(fs.reacted), "Likes given") + stat(a?.createdAt ? a.createdAt.slice(0, 10) : "–", "Account created");
   } catch (e) {
     const el = document.getElementById("uLive"); if (el) el.innerHTML = `<div class="muted" style="font-size:12px">Live profile data could not be loaded from the Lens API.</div>`;
   }
