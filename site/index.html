@@ -79,6 +79,36 @@ tbody tr:hover{background:var(--wash)}
 footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.6}
 footer code{font-size:11px}
 .empty{padding:40px;text-align:center;color:var(--ink2)}
+.search{width:100%;max-width:360px;font:inherit;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--page);color:var(--ink)}
+.search:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.linkbtn{background:none;border:0;padding:0;font:inherit;color:var(--ink);font-weight:600;cursor:pointer;text-align:left}
+.linkbtn:hover{text-decoration:underline}
+.linkbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.ext{color:var(--muted);text-decoration:none;margin-left:6px;font-size:12px}
+.ext:hover{color:var(--ink)}
+dialog#user{border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--ink);padding:0;width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
+dialog#user::backdrop{background:rgba(0,0,0,.45)}
+.ub{padding:20px;position:relative}
+.uhead{display:flex;gap:14px;align-items:center;padding-right:40px;flex-wrap:wrap}
+.avatar{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--grid);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:var(--ink2);flex:none}
+.uname{font-size:18px;font-weight:650}
+.chip{display:inline-block;font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border);color:var(--ink2);margin-left:6px;vertical-align:middle}
+.bio{color:var(--ink2);font-size:13px;margin:10px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.ub h3{font-size:13px;margin:18px 0 6px;color:var(--ink2);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:8px}
+.stat{border:1px solid var(--border);border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+.stat span{font-size:11px;color:var(--muted)}
+.bars{display:grid;gap:6px}
+.bars .row{display:grid;grid-template-columns:150px 1fr 60px;gap:8px;align-items:center;font-size:12px}
+.bars .row span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.bars .track{height:8px;border-radius:4px;background:var(--grid)}
+.bars .fill{height:8px;border-radius:4px}
+.close{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--page);color:var(--ink);font-size:18px;cursor:pointer;line-height:1}
+.ulinks{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;margin-top:4px}
+.ulinks a{color:var(--accent);text-decoration:none}
+.ulinks a:hover{text-decoration:underline}
+.muted{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -148,6 +178,14 @@ footer code{font-size:11px}
     <div class="scroll"><table id="top"></table></div>
   </div>
 
+  <div class="card" id="accounts">
+    <div class="head">
+      <div><h2>Accounts</h2><div class="sub" id="usersSub">Loading accounts…</div></div>
+      <input id="userSearch" class="search" type="search" placeholder="Search by username or address" aria-label="Search accounts" autocomplete="off">
+    </div>
+    <div class="scroll"><table id="users"></table></div>
+  </div>
+
   <div class="card">
     <div class="head"><div><h2>Client comparison</h2><div class="sub" id="appsSub"></div></div></div>
     <div class="scroll"><table id="apps"></table></div>
@@ -155,6 +193,8 @@ footer code{font-size:11px}
 
   <footer id="foot"></footer>
 </div>
+
+<dialog id="user" aria-label="Account details"><div class="ub" id="userBody"></div></dialog>
 
 <script>
 const KINDS = ["post","comment","quote","repost"];
@@ -305,7 +345,7 @@ function renderTop() {
       const title = u.handle ? "@" + u.handle : (u.address.slice(0, 6) + "…" + u.address.slice(-4));
       const bar = `<div style="height:6px;border-radius:3px;background:var(--grid)"><div style="height:6px;border-radius:3px;width:${(u.total / max * 100).toFixed(1)}%;background:var(--accent)"></div></div>`;
       return `<tr><td class="rank">${i + 1}</td>
-        <td class="l"><div class="who"><a href="${href}" target="_blank" rel="noopener">${esc(title)}</a><small>${esc(u.name || "")}${u.name ? " · " : ""}${esc(u.address.slice(0, 10))}…</small></div></td>
+        <td class="l"><div class="who"><span><button class="linkbtn" data-addr="${esc(u.address)}">${esc(title)}</button><a class="ext" href="${href}" target="_blank" rel="noopener" aria-label="Open profile">↗</a></span><small>${esc(u.name || "")}${u.name ? " · " : ""}${esc(u.address.slice(0, 10))}…</small></div></td>
         <td><b>${fmt(u.total)}</b></td><td>${fmt(u.post)}</td><td>${fmt(u.comment)}</td><td>${fmt(u.quote)}</td><td>${fmt(u.repost)}</td><td class="l">${bar}</td></tr>`;
     }).join("") + "</tbody>";
 }
@@ -326,6 +366,101 @@ function renderApps() {
       <td><b>${fmt(x.tot)}</b></td><td>${(x.tot / all * 100).toFixed(1)}%</td><td>${chg(x.tot, x.prev)}</td>
       <td>${fmt(x.post)}</td><td>${fmt(x.comment)}</td><td>${fmt(x.quote)}</td><td>${fmt(x.repost)}</td>
       <td>${fmt(x.active)}</td></tr>`).join("") + "</tbody>";
+}
+
+// ---------------------------------------------------------------- accounts section
+let U = null, userChart = null;
+async function loadUsers() {
+  if (U) return U;
+  try { U = await (await fetch("users.json", { cache: "no-store" })).json(); }
+  catch (e) { U = { days: [], apps: [], users: [], failed: true }; }
+  U.byAddr = new Map(U.users.map(u => [u[0], u]));
+  return U;
+}
+const uTotal = u => u[3][0] + u[3][1] + u[3][2] + u[3][3];
+const uName = u => u[1] ? "@" + u[1] : u[0].slice(0, 6) + "…" + u[0].slice(-4);
+function uMainApp(u) { const i = u[4][0]; return i == null ? "–" : (U.apps[i] || [])[1] || "–"; }
+function uVisible(u) {
+  if (u[2] != null && u[2] < state.minScore) return false;
+  if (state.hideSpam) { let ok = 0; for (let i = 0; i < u[4].length; i += 2) if (!(U.apps[u[4][i]] || [])[2]) ok += u[4][i + 1]; if (!ok) return false; }
+  return true;
+}
+function renderUsers() {
+  const sub = document.getElementById("usersSub"), tbl = document.getElementById("users");
+  if (!U) return;
+  if (U.failed || !U.users.length) { sub.textContent = "Account data is not available yet."; tbl.innerHTML = ""; return; }
+  const q = document.getElementById("userSearch").value.trim().toLowerCase().replace(/^@/, "");
+  const list = U.users.filter(u => uVisible(u) && (!q || (u[1] || "").toLowerCase().includes(q) || u[0].startsWith(q)));
+  sub.textContent = `${fmt(list.length)} accounts${q ? " match" : ""} · activity in the last ${U.days.length - 1} days and today · filters apply · click a name for details`;
+  if (!list.length) { tbl.innerHTML = `<tr><td class="empty">No account found</td></tr>`; return; }
+  tbl.innerHTML = `<thead><tr><th class="rank">#</th><th class="l">Account</th><th>Score</th><th>Total</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th><th class="l">Main client</th></tr></thead><tbody>` +
+    list.slice(0, 25).map((u, i) => `<tr><td class="rank">${i + 1}</td>
+      <td class="l"><button class="linkbtn" data-addr="${esc(u[0])}">${esc(uName(u))}</button></td>
+      <td>${u[2] == null ? "–" : fmt(u[2])}</td><td><b>${fmt(uTotal(u))}</b></td>
+      <td>${fmt(u[3][0])}</td><td>${fmt(u[3][1])}</td><td>${fmt(u[3][2])}</td><td>${fmt(u[3][3])}</td>
+      <td class="l">${esc(uMainApp(u))}</td></tr>`).join("") + "</tbody>" +
+    (list.length > 25 ? `<tfoot><tr><td colspan="9" class="muted" style="text-align:left">Showing the 25 most active of ${fmt(list.length)}. Search to find others.</td></tr></tfoot>` : "");
+}
+
+const LENS_Q = `query U($a: EvmAddress!){
+  account(request:{address:$a}){ createdAt score username{ localName } metadata{ name bio picture } }
+  accountStats(request:{account:$a}){ graphFollowStats{ followers following } feedStats{ posts comments reposts quotes } } }`;
+
+async function openUser(addr) {
+  addr = addr.toLowerCase();
+  await loadUsers();
+  const u = U.byAddr.get(addr) || [addr, null, null, [0, 0, 0, 0], [], []];
+  const dlg = document.getElementById("user"), body = document.getElementById("userBody");
+  const days = U.days.length ? U.days : D.days;
+  const daily = Array(days.length).fill(0); for (let i = 0; i < u[5].length; i += 2) daily[u[5][i]] = u[5][i + 1];
+  const active = daily.map((n, i) => n ? i : -1).filter(i => i >= 0);
+  const tot = uTotal(u);
+  const hey = u[1] ? `https://hey.xyz/u/${encodeURIComponent(u[1])}` : null;
+  const stat = (v, k) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`;
+  const appRows = []; for (let i = 0; i < u[4].length; i += 2) appRows.push([U.apps[u[4][i]] || ["", "?"], u[4][i + 1]]);
+  const maxApp = appRows.length ? appRows[0][1] : 1;
+  body.innerHTML = `
+    <button class="close" aria-label="Close">×</button>
+    <div class="uhead">
+      <div class="avatar" id="uAvatar">${esc((u[1] || "?")[0].toUpperCase())}</div>
+      <div style="min-width:0">
+        <div class="uname"><span id="uDisplay">${esc(uName(u))}</span><span class="chip" id="uScore">score ${u[2] == null ? "–" : fmt(u[2])}</span></div>
+        <div class="muted" style="font-size:12px;overflow-wrap:anywhere">${u[1] ? "@" + esc(u[1]) + " · " : ""}${esc(addr)}</div>
+        <div class="ulinks">${hey ? `<a href="${hey}" target="_blank" rel="noopener">Open on Hey ↗</a>` : ""}<a href="https://explorer.lens.xyz/address/${esc(addr)}" target="_blank" rel="noopener">Lens explorer ↗</a></div>
+      </div>
+    </div>
+    <div class="bio" id="uBio"></div>
+    <h3>All-time on Lens (live from the Lens API)</h3>
+    <div class="stats" id="uLive"><div class="stat"><b>…</b><span>loading</span></div></div>
+    <h3>Last ${days.length - 1} days and today (this dashboard)</h3>
+    <div class="stats">${stat(fmt(tot), "Total")}${stat(fmt(u[3][0]), "Posts")}${stat(fmt(u[3][1]), "Comments")}${stat(fmt(u[3][2]), "Quotes")}${stat(fmt(u[3][3]), "Reposts")}${stat(fmt(active.length), "Active days")}${stat(active.length ? days[active[0]].slice(5).replace("-", ".") : "–", "First active")}${stat(active.length ? days[active.at(-1)].slice(5).replace("-", ".") : "–", "Last active")}</div>
+    ${appRows.length ? `<h3>Clients used</h3><div class="bars">${appRows.map(([a, n]) => `<div class="row"><span>${esc(a[1])}${a[2] ? ' <span class="chip">spam</span>' : ""}</span><div class="track"><div class="fill" style="width:${(n / maxApp * 100).toFixed(1)}%;background:${D.apps.some(x => x.key === a[0]) ? appColor(a[0]) : css("--other")}"></div></div><span>${fmt(n)}</span></div>`).join("")}</div>` : ""}
+    <h3>Daily activity</h3>
+    <div class="chart" style="height:200px"><canvas id="userChart"></canvas></div>`;
+  body.querySelector(".close").onclick = () => dlg.close();
+  if (!dlg.open) dlg.showModal();
+  if (userChart) userChart.destroy();
+  const opts = baseOptions(false);
+  opts.scales.x.ticks.callback = v => days[v].slice(5).replace("-", ".");
+  opts.plugins.tooltip.callbacks.title = it => days[it[0].dataIndex] + (it[0].dataIndex === days.length - 1 ? " (today, in progress)" : "");
+  userChart = new Chart(document.getElementById("userChart"), { type: "bar", data: { labels: days.map((_, i) => i), datasets: [{ label: "Items", data: daily, backgroundColor: css("--accent"), borderRadius: 2, categoryPercentage: .9, barPercentage: 1 }] }, options: opts });
+  // live profile
+  try {
+    const r = await (await fetch("https://api.lens.xyz/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: LENS_Q, variables: { a: addr } }) })).json();
+    if (!dlg.open) return;
+    const a = r.data?.account, st = r.data?.accountStats;
+    if (a) {
+      if (a.metadata?.name) document.getElementById("uDisplay").textContent = a.metadata.name;
+      if (typeof a.score === "number") document.getElementById("uScore").textContent = "score " + fmt(a.score);
+      document.getElementById("uBio").textContent = a.metadata?.bio || "";
+      const pic = a.metadata?.picture;
+      if (pic && /^https:\/\//.test(pic)) { const img = document.createElement("img"); img.className = "avatar"; img.alt = ""; img.src = pic; img.onerror = () => img.replaceWith(document.getElementById("uAvatar") || img); const av = document.getElementById("uAvatar"); if (av) av.replaceWith(img); }
+    }
+    const f = st?.graphFollowStats || {}, fs = st?.feedStats || {};
+    document.getElementById("uLive").innerHTML = stat(fmt(f.followers), "Followers") + stat(fmt(f.following), "Following") + stat(fmt(fs.posts), "Posts") + stat(fmt(fs.comments), "Comments") + stat(fmt(fs.quotes), "Quotes") + stat(fmt(fs.reposts), "Reposts") + stat(a?.createdAt ? a.createdAt.slice(0, 10) : "–", "Account created");
+  } catch (e) {
+    const el = document.getElementById("uLive"); if (el) el.innerHTML = `<div class="muted" style="font-size:12px">Live profile data could not be loaded from the Lens API.</div>`;
+  }
 }
 
 function applyVariant() {
@@ -351,7 +486,7 @@ function renderAll() {
   document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.range)));
   document.getElementById("app").value = state.app;
   document.getElementById("kind").value = state.kind;
-  renderTiles(); renderCharts(); renderTop(); renderApps();
+  renderTiles(); renderCharts(); renderTop(); renderApps(); renderUsers();
 }
 
 async function init() {
@@ -397,8 +532,13 @@ async function init() {
     Scores are current values, so a new real user can start low and rise later.
     ${D.accounts_by_min_score ? `Accounts in the window: ${fmt(D.accounts_total)} in total, ${fmt(D.accounts_by_min_score[1])} with score 1+, ${fmt(D.accounts_by_min_score[5000])} with 5,000+, ${fmt(D.accounts_by_min_score[9000])} with 9,000+.` : ""}`;
 
+  document.getElementById("userSearch").oninput = () => { loadUsers().then(renderUsers); };
+  document.addEventListener("click", e => { const b = e.target.closest("[data-addr]"); if (b) { e.preventDefault(); openUser(b.dataset.addr); } });
+  document.getElementById("user").addEventListener("click", e => { if (e.target.id === "user") e.target.close(); });
+
   renderAll();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  loadUsers().then(renderUsers);
 }
 init();
 </script>
