@@ -1,0 +1,57 @@
+name: Update Lens data and publish
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # every 3 hours (UTC)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths-ignore: ["data/**"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: lens-update
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Collect from the Lens API
+        env:
+          LENS_TZ: ${{ vars.LENS_TZ || 'UTC' }}
+          LENS_DAYS: ${{ vars.LENS_DAYS || '90' }}
+        run: node collect.mjs
+
+      - name: Save collected days to the repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Update Lens data"
+          git push
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
