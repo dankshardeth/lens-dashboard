@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 
 export const API = "https://api.lens.xyz/graphql";
 export const KINDS = ["post", "comment", "quote", "repost"];
-export const RANGES = [7, 30, 90];
+export const RANGES = [1, 7, 30, 90];
 
 // Known client app addresses on Lens Chain (lower-case). Always shown as their own series.
 export const HIGHLIGHT = {
@@ -32,10 +32,23 @@ export const HIGHLIGHT = {
 };
 export const TOP_OTHER_APPS = 3; // 4 highlighted + 3 + "Other" = 8 series
 
+// Apps whose content is automated spam. Hidden when the dashboard's "Hide spam apps" filter is on.
+export const SPAM_APPS = {
+  "0x840f9759d25ca59b025d95e43ed0aafccb1137c7": "Gallery Publisher", // mass link spam from throwaway accounts
+};
+
+// Filter combinations precomputed for the dashboard
+export const VARIANTS = {
+  all:      { spam: true,  zero: true },
+  nospam:   { spam: false, zero: true },
+  noscore0: { spam: true,  zero: false },
+  clean:    { spam: false, zero: false },
+};
+
 const POSTS_Q = `query P($c: Cursor){ posts(request:{pageSize: FIFTY, cursor: $c, filter:{postTypes:[ROOT,COMMENT,QUOTE,REPOST]}}){
   items{ __typename
-    ... on Post { timestamp author{ address username{ localName } } app{ address } commentOn{ id } quoteOf{ id } }
-    ... on Repost { timestamp author{ address username{ localName } } app{ address } } }
+    ... on Post { timestamp author{ address score username{ localName } } app{ address } commentOn{ id } quoteOf{ id } }
+    ... on Repost { timestamp author{ address score username{ localName } } app{ address } } }
   pageInfo{ next } } }`;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -80,9 +93,9 @@ export function classify(p) {
 }
 
 // Fetch posts newest-first until the day boundary `fromDay` (inclusive) is passed.
-// Returns { agg: {day: {"app|account|kind": n}}, handles: {account: localName} }
+// Returns { agg: {day: {"app|account|kind": n}}, handles: {account: localName}, scores: {account: score} }
 export async function fetchSince(fromDay, tz, log = () => {}) {
-  const agg = {}, handles = {};
+  const agg = {}, handles = {}, scores = {};
   let cursor = null, pages = 0, n = 0;
   for (;;) {
     const d = await gql(POSTS_Q, { c: cursor });
@@ -97,6 +110,7 @@ export async function fetchSince(fromDay, tz, log = () => {}) {
       const key = app + "|" + acct + "|" + classify(p);
       (agg[day] ||= {})[key] = ((agg[day] ||= {})[key] || 0) + 1;
       if (p.author?.username?.localName) handles[acct] ||= p.author.username.localName;
+      if (typeof p.author?.score === "number" && !(acct in scores)) scores[acct] = p.author.score;
       n++;
     }
     if (pages % 50 === 0) log(`  ${pages} pages, ${n} posts, at ${items.at(-1)?.timestamp}`);
@@ -104,7 +118,20 @@ export async function fetchSince(fromDay, tz, log = () => {}) {
     if (passed || !cursor || !items.length) break;
   }
   log(`  fetched ${n} posts in ${pages} pages`);
-  return { agg, handles };
+  return { agg, handles, scores };
+}
+
+// Current Lens account score for many accounts (the API takes 50 per request)
+export async function fetchScores(accounts, log = () => {}) {
+  const out = {};
+  for (let i = 0; i < accounts.length; i += 50) {
+    const batch = accounts.slice(i, i + 50);
+    try {
+      const d = await gql(`query S($a: [EvmAddress!]!){ accountsBulk(request:{addresses:$a}){ address score } }`, { a: batch });
+      for (const a of d.accountsBulk) out[a.address.toLowerCase()] = a.score;
+    } catch (e) { log("  score batch failed: " + e.message); }
+  }
+  return out;
 }
 
 export async function fetchAppNames(addrs) {
@@ -119,16 +146,40 @@ export async function fetchAppNames(addrs) {
   return out;
 }
 
-// Build the dashboard data file from per-day aggregates.
-export function buildData({ agg, handles, appNames, days, tz, generatedAt }) {
+// Build the dashboard data file from per-day aggregates: one block per filter combination.
+export function buildData({ agg, handles, appNames, scores = {}, days, tz, generatedAt }) {
+  const variants = {};
+  for (const [name, v] of Object.entries(VARIANTS)) {
+    const keep = (app, acct) => (v.spam || !SPAM_APPS[app]) && (v.zero || scores[acct] !== 0);
+    variants[name] = buildVariant({ agg, handles, appNames, days, keep });
+  }
+  const accts = new Set(); for (const d of days) for (const k of Object.keys(agg[d] || {})) accts.add(k.split("|")[1]);
+  const known = [...accts].filter(a => typeof scores[a] === "number");
+  return {
+    demo: false,
+    generated_at: generatedAt,
+    timezone: tz,
+    source: "Lens API (api.lens.xyz), live",
+    days,
+    spam_apps: Object.values(SPAM_APPS),
+    accounts_total: accts.size,
+    accounts_score_known: known.length,
+    accounts_score_zero: known.filter(a => scores[a] === 0).length,
+    top_format: ["address", "handle", "post", "comment", "quote", "repost"],
+    variants,
+  };
+}
+
+function buildVariant({ agg, handles, appNames, days, keep }) {
   const N = days.length, idx = Object.fromEntries(days.map((d, i) => [d, i]));
+  const rows = d => Object.entries(agg[d] || {}).filter(([k]) => { const [a, acct] = k.split("|"); return keep(a, acct); });
 
   const vol = {};
-  for (const d of days) for (const [k, n] of Object.entries(agg[d] || {})) { const a = k.split("|")[0]; vol[a] = (vol[a] || 0) + n; }
+  for (const d of days) for (const [k, n] of rows(d)) { const a = k.split("|")[0]; vol[a] = (vol[a] || 0) + n; }
 
-  const name = a => HIGHLIGHT[a] || appNames[a] || (a === "none" ? "Unknown / no app" : a.slice(0, 8) + "…" + a.slice(-4));
+  const name = a => HIGHLIGHT[a] || appNames[a] || SPAM_APPS[a] || (a === "none" ? "Unknown / no app" : a.slice(0, 8) + "…" + a.slice(-4));
   const highlighted = Object.keys(HIGHLIGHT);
-  const others = Object.entries(vol).filter(([a]) => !HIGHLIGHT[a]).sort((x, y) => y[1] - x[1]).slice(0, TOP_OTHER_APPS).map(([a]) => a);
+  const others = Object.entries(vol).filter(([a]) => !HIGHLIGHT[a] && vol[a] > 0).sort((x, y) => y[1] - x[1]).slice(0, TOP_OTHER_APPS).map(([a]) => a);
   const shown = [...highlighted, ...others];
   const shownSet = new Set(shown);
   const bucket = a => (shownSet.has(a) ? a : "other");
@@ -140,7 +191,7 @@ export function buildData({ agg, handles, appNames, days, tz, generatedAt }) {
 
   for (const d of days) {
     const i = idx[d];
-    for (const [k, n] of Object.entries(agg[d] || {})) {
+    for (const [k, n] of rows(d)) {
       const [app, acct, kind] = k.split("|");
       for (const key of ["all", bucket(app)]) {
         daily[key][kind][i] += n;
@@ -172,17 +223,11 @@ export function buildData({ agg, handles, appNames, days, tz, generatedAt }) {
   }
 
   return {
-    demo: false,
-    generated_at: generatedAt,
-    timezone: tz,
-    source: "Lens API (api.lens.xyz), live",
-    days,
     apps: [...shown.map(a => ({ key: a, address: a === "none" ? null : a, name: name(a), highlighted: !!HIGHLIGHT[a] })),
            { key: "other", address: null, name: "Other apps", highlighted: false }],
     daily,
     range_active: rangeActive,
     top_users: topUsers,
-    top_format: ["address", "handle", "post", "comment", "quote", "repost"],
   };
 }
 
@@ -197,6 +242,7 @@ async function main() {
   mkdirSync(dayDir, { recursive: true });
   const metaPath = join(root, "data", "meta.json");
   const meta = existsSync(metaPath) ? JSON.parse(readFileSync(metaPath, "utf8")) : { handles: {}, appNames: {} };
+  meta.scores ||= {};
   if (meta.tz && meta.tz !== TZ) { // time zone changed: day files are no longer valid
     for (const f of readdirSync(dayDir)) unlinkSync(join(dayDir, f));
   }
@@ -209,7 +255,7 @@ async function main() {
   const fromDay = missing.length ? missing[0] : refetchFrom;
   console.log(`Lens collector: window ${days[0]}..${days.at(-1)} (${TZ}), fetching from ${fromDay}`);
 
-  const { agg, handles } = await fetchSince(fromDay, TZ, console.log);
+  const { agg, handles, scores } = await fetchSince(fromDay, TZ, console.log);
   for (const d of days.filter(d => d >= fromDay)) {
     writeFileSync(join(dayDir, d + ".json"), JSON.stringify(agg[d] || {}));
   }
@@ -217,15 +263,29 @@ async function main() {
   for (const f of readdirSync(dayDir)) if (f.replace(".json", "") < days[0]) unlinkSync(join(dayDir, f));
 
   Object.assign(meta.handles, handles);
+  Object.assign(meta.scores, scores);
   const all = {};
   for (const d of days) { const p = join(dayDir, d + ".json"); if (existsSync(p)) all[d] = JSON.parse(readFileSync(p, "utf8")); }
+
+  // Account scores: fill unknown accounts every run, refresh all window accounts once a day
+  const windowAccts = [...new Set(Object.values(all).flatMap(o => Object.keys(o).map(k => k.split("|")[1])))];
+  const todayStr = days.at(-1);
+  const toFetch = meta.scoresDay === todayStr ? windowAccts.filter(a => !(a in meta.scores)) : windowAccts;
+  if (toFetch.length) {
+    console.log(`  fetching scores for ${toFetch.length} accounts`);
+    Object.assign(meta.scores, await fetchScores(toFetch, console.log));
+    if (meta.scoresDay !== todayStr) meta.scoresDay = todayStr;
+  }
+  const inWindow = new Set(windowAccts); // keep meta small: drop accounts no longer in the window
+  for (const a of Object.keys(meta.scores)) if (!inWindow.has(a)) delete meta.scores[a];
+  for (const a of Object.keys(meta.handles)) if (!inWindow.has(a)) delete meta.handles[a];
   const seenApps = new Set(Object.values(all).flatMap(o => Object.keys(o).map(k => k.split("|")[0])));
   const unnamed = [...seenApps].filter(a => !(a in meta.appNames) && !HIGHLIGHT[a] && a !== "none");
   const named = await fetchAppNames(unnamed);
   for (const a of unnamed) meta.appNames[a] = named[a] || null;
   writeFileSync(metaPath, JSON.stringify(meta));
 
-  const data = buildData({ agg: all, handles: meta.handles, appNames: meta.appNames, days, tz: TZ, generatedAt: new Date().toISOString() });
+  const data = buildData({ agg: all, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days, tz: TZ, generatedAt: new Date().toISOString() });
   mkdirSync(join(root, "site"), { recursive: true });
   writeFileSync(join(root, "site", "data.json"), JSON.stringify(data));
   console.log(`Wrote site/data.json (${Object.keys(all).length} days with data)`);
