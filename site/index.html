@@ -110,7 +110,14 @@ footer code{font-size:11px}
       </select>
     </label>
     <label class="chk"><input type="checkbox" id="hideSpam"> Hide spam apps</label>
-    <label class="chk"><input type="checkbox" id="hideZero"> Hide 0-score accounts</label>
+    <label class="f">Min. account score
+      <select id="minScore">
+        <option value="0">Any</option>
+        <option value="1">1+ (hide unscored)</option>
+        <option value="5000">5,000+ (likely genuine)</option>
+        <option value="9000">9,000+ (established)</option>
+      </select>
+    </label>
   </div>
   <div class="sub" id="filterNote"></div>
 
@@ -156,8 +163,8 @@ const fmt = n => n == null ? "–" : n.toLocaleString("en-US");
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-let D, RAW, charts = {};
-const state = { range: 30, app: "all", kind: "all", hideSpam: true, hideZero: true };
+let D, RAW, UNFILTERED = "s0", charts = {};
+const state = { range: 30, app: "all", kind: "all", hideSpam: true, minScore: 5000 };
 try { Object.assign(state, JSON.parse(localStorage.getItem("lensdash") || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem("lensdash", JSON.stringify(state)); } catch (e) {} };
 
@@ -322,24 +329,25 @@ function renderApps() {
 }
 
 function applyVariant() {
-  const key = state.hideSpam ? (state.hideZero ? "clean" : "nospam") : (state.hideZero ? "noscore0" : "all");
-  const v = RAW.variants[key];
+  const key = (state.hideSpam ? "n" : "s") + state.minScore;
+  const v = RAW.variants[key] || RAW.variants[state.hideSpam ? "nospam" : "all"] || RAW.variants[UNFILTERED];
   Object.assign(D, { apps: v.apps, daily: v.daily, range_active: v.range_active, top_users: v.top_users });
   if (!D.daily[state.app]) state.app = "all";
   const sel = document.getElementById("app");
   sel.innerHTML = `<option value="all">All clients</option>` + D.apps.map(a => `<option value="${esc(a.key)}">${esc(appName(a.key))}</option>`).join("");
   // how much the filters hide in the selected period
   const w = win(state.range), tot = vv => KINDS.reduce((s, k) => s + (sum(vv.daily.all[k], w) || 0), 0);
-  const shown = tot(v), all = tot(RAW.variants.all);
+  const base = RAW.variants[UNFILTERED];
+  const shown = tot(v), all = tot(base);
   const note = document.getElementById("filterNote");
   note.textContent = shown === all ? "" :
-    `Filters hide ${fmt(all - shown)} of ${fmt(all)} items (${((all - shown) / all * 100).toFixed(0)}%) and ${fmt(RAW.variants.all.range_active[state.range].all - v.range_active[state.range].all)} accounts (${periodText(state.range)}).`;
+    `Filters hide ${fmt(all - shown)} of ${fmt(all)} items (${((all - shown) / all * 100).toFixed(0)}%) and ${fmt(base.range_active[state.range].all - v.range_active[state.range].all)} accounts (${periodText(state.range)}).`;
 }
 
 function renderAll() {
   applyVariant();
   document.getElementById("hideSpam").checked = state.hideSpam;
-  document.getElementById("hideZero").checked = state.hideZero;
+  document.getElementById("minScore").value = String(state.minScore);
   document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.range)));
   document.getElementById("app").value = state.app;
   document.getElementById("kind").value = state.kind;
@@ -353,13 +361,15 @@ async function init() {
     document.getElementById("meta").textContent = "Could not load data.json. Run: node collect.mjs";
     return;
   }
-  if (!D.variants) D.variants = { all: { apps: D.apps, daily: D.daily, range_active: D.range_active, top_users: D.top_users } };
-  for (const key of ["nospam", "noscore0", "clean"]) D.variants[key] ||= D.variants.all;
+  if (!D.variants) D.variants = { s0: { apps: D.apps, daily: D.daily, range_active: D.range_active, top_users: D.top_users } };
+  UNFILTERED = D.variants.s0 ? "s0" : "all";
   for (const v of Object.values(D.variants)) for (const r of Object.values(v.top_users)) for (const k in r)
     r[k] = r[k].map(row => { if (!Array.isArray(row)) return row; const u = Object.fromEntries(D.top_format.map((f, i) => [f, row[i]])); u.total = u.post + u.comment + u.quote + u.repost; return u; });
   RAW = D;
   D = { ...RAW };
   if (![1, 7, 30, 90].includes(state.range)) state.range = 30;
+  if (![0, 1, 5000, 9000].includes(+state.minScore)) state.minScore = 5000;
+  state.minScore = +state.minScore; delete state.hideZero;
 
   const upd = new Date(D.generated_at);
   document.getElementById("meta").innerHTML =
@@ -371,7 +381,7 @@ async function init() {
   const sel = document.getElementById("app");
   sel.onchange = () => { state.app = sel.value; save(); renderAll(); };
   document.getElementById("hideSpam").onchange = e => { state.hideSpam = e.target.checked; save(); renderAll(); };
-  document.getElementById("hideZero").onchange = e => { state.hideZero = e.target.checked; save(); renderAll(); };
+  document.getElementById("minScore").onchange = e => { state.minScore = +e.target.value; save(); renderAll(); };
   document.getElementById("kind").onchange = e => { state.kind = e.target.value; save(); renderAll(); };
   document.querySelectorAll("#range button").forEach(btn => btn.onclick = () => { state.range = +btn.dataset.v; save(); renderAll(); });
 
@@ -382,8 +392,10 @@ async function init() {
     Active posters = unique accounts that published anything in the day or period (period figures are counted separately, not summed from days).
     Summary figures and the top list cover full days only ("1 day" = yesterday); today appears on the charts only.
     <br><b>Filters:</b> "Hide spam apps" removes content from apps flagged as automated spam (${esc((D.spam_apps || []).join(", ") || "none")}).
-    "Hide 0-score accounts" removes accounts whose current Lens account score is 0, which Lens gives to new, low-quality or bot accounts; this also hides some legitimate automated accounts such as news feeds.
-    ${D.accounts_total ? `Score known for ${fmt(D.accounts_score_known)} of ${fmt(D.accounts_total)} accounts in the window; ${fmt(D.accounts_score_zero)} have score 0.` : ""}`;
+    "Min. account score" uses the Lens account score (1–10,000), an ML estimate of how likely an account is genuine, based on its follower graph and content.
+    Most accounts sit at the extremes: below 5,000 are mostly unscored, one-off campaign posts, farming and bot accounts; 5,000+ keeps accounts Lens rates as more likely genuine than not; 9,000+ keeps only established accounts.
+    Scores are current values, so a new real user can start low and rise later.
+    ${D.accounts_by_min_score ? `Accounts in the window: ${fmt(D.accounts_total)} in total, ${fmt(D.accounts_by_min_score[1])} with score 1+, ${fmt(D.accounts_by_min_score[5000])} with 5,000+, ${fmt(D.accounts_by_min_score[9000])} with 9,000+.` : ""}`;
 
   renderAll();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
