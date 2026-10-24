@@ -1,41 +1,34 @@
 # Lens Protocol activity dashboard
 
-Statikus, ingyenesen futó dashboard a Lens Protocol (Lens Chain) aktivitásáról, angol nyelvű felülettel:
+A static, free-to-run dashboard of Lens Protocol (Lens Chain) activity:
 
-- napi tartalom kliensenként (Hey, Orb, Firefly, Palus + a 3 legaktívabb további app + „Other apps”)
-- posztok, kommentek, idézések, repostok naponta
-- aktív posztolók (egyedi fiókok) naponta és időszakra
-- top 10 legaktívabb fiók összesen és kliensenként (7 / 30 / 90 nap)
-- kliens-összehasonlító táblázat részesedéssel és változással
+- daily content by client (Hey, Orb, Firefly, Palus, the 3 most active other apps, and "Other apps")
+- posts, comments, quotes and reposts per day
+- active posters (unique accounts) per day and per period
+- top 10 most active accounts, overall and per client
+- client comparison table with share and change vs. the previous period
+- periods: 1 day (yesterday), 7, 30 and 90 days
+- filters: hide spam apps, and a minimum Lens account score (any, 1+, 5,000+, 9,000+)
 
-## Hogyan működik
+## How it works
 
 ```
 Lens API (api.lens.xyz)  →  collect.mjs  →  data/days/*.json  →  site/data.json  →  site/index.html
 ```
 
-- **Forrás:** a Lens nyilvános GraphQL API-ja. Ingyenes, nem kell kulcs, élő adat.
-  (A Lens BigQuery adatkészlete 2026. február 26. óta nem frissül, ezért nem azt használja.)
-- **`collect.mjs`:** Node 18+, függőségek nélkül. Minden futáskor újra letölti a tegnapi és a mai napot,
-  és pótolja a hiányzó napokat. Az első futás visszatölti a teljes 90 napot (kb. 30 perc).
-- **`data/days/`:** naponként egy fájl (app × fiók × típus darabszámok). Az Actions ezt visszaírja a repóba.
-- **GitHub Actions + Pages:** 3 óránként frissít és közzéteszi az oldalt. Nyilvános repóban mindkettő ingyenes.
+- **Source:** the public Lens GraphQL API. Free, no API key, live data.
+  (The Lens BigQuery dataset has not been updated since 26 February 2026, so it is not used.)
+- **`collect.mjs`:** Node 18+, no dependencies. Each run re-fetches yesterday and today, fills in any missing days,
+  and refreshes Lens account scores once a day. The first run backfills the full 90 days.
+- **`data/days/`:** one file per day with counts per app × account × content type. The workflow commits these back to the repo.
+- **GitHub Actions + Pages:** updates every 3 hours and publishes the site. Both are free for public repositories.
 
-## Beállítás
+## Methodology
 
-1. Tedd fel ezt a mappát egy **nyilvános** GitHub repóba (`main` ág).
-2. *Settings → Pages → Source:* **GitHub Actions**.
-3. *Actions* fül → „Update Lens data and publish” → **Run workflow**.
-4. Az első futás után az oldal elérhető a `https://<felhasználó>.github.io/<repó>/` címen.
-
-Opcionális *Settings → Variables*: `LENS_TZ` (pl. `Europe/Budapest`, alap `UTC`), `LENS_DAYS` (alap `90`).
-
-Helyben: `node collect.mjs`, majd `python3 -m http.server -d site 8000`.
-
-## Módszertan
-
-- **Kliens** = a Lens app, amelyhez a tartalom a láncon rögzítve van. A négy fő kliens címe a `collect.mjs` elején van.
-- **Típus:** repost, komment (válasz egy posztra), idézés, egyébként poszt. Törölt posztok nincsenek benne.
-- **Aktív posztoló** = egyedi fiók, amely aznap vagy az időszakban bármit közölt; időszakra külön számolva.
-- Az összesítők és a top 10 teljes napokra számolnak; a mai nap csak a grafikonokon látszik.
-- Az API a nyilvánosan látható posztokat adja vissza. Ha a Lens valamit elrejt vagy töröl, az itt sem jelenik meg.
+- **Client** = the Lens app recorded on Lens Chain with each piece of content. The addresses of the four main clients are at the top of `collect.mjs`.
+- **Type:** repost, comment (reply to a post), quote, otherwise post. Deleted posts are not included.
+- **Active poster** = a unique account that published anything in the day or period; period figures are counted separately, not summed from days.
+- Summary figures and the top 10 cover full days only ("1 day" = yesterday); today appears on the charts only.
+- **Spam apps** are listed in `SPAM_APPS` in `collect.mjs` (currently Gallery Publisher, which posts mass link spam from throwaway accounts).
+- **Account score** is the Lens account score (1–10,000), an ML estimate of how likely an account is genuine. Below 5,000 are mostly unscored, one-off campaign, farming and bot accounts; 9,000+ are established accounts. Scores are current values, so a new real user can start low.
+- The API returns publicly visible posts only. Content that Lens hides or deletes does not appear here.
