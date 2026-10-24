@@ -333,7 +333,7 @@ function applyVariant() {
   const shown = tot(v), all = tot(RAW.variants.all);
   const note = document.getElementById("filterNote");
   note.textContent = shown === all ? "" :
-    `Filters hide ${fmt(all - shown)} of ${fmt(all)} items (${((all - shown) / all * 100).toFixed(0)}%) and ${fmt(RAW.variants.all.range_active[state.range].all - v.range_active[state.range].all)} accounts in ${periodText(state.range)}.`;
+    `Filters hide ${fmt(all - shown)} of ${fmt(all)} items (${((all - shown) / all * 100).toFixed(0)}%) and ${fmt(RAW.variants.all.range_active[state.range].all - v.range_active[state.range].all)} accounts (${periodText(state.range)}).`;
 }
 
 function renderAll() {
