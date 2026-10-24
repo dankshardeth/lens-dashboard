@@ -363,16 +363,14 @@ function renderTopFallback() {
   const list = D.top_users[String(state.range)]?.[state.app] || [];
   document.getElementById("topSub").textContent = `${appName(state.app)} · ${periodText(state.range)} · ranked by all own content`;
   if (!list.length) { document.getElementById("top").innerHTML = `<tr><td class="empty">No data</td></tr>`; return; }
-  const max = list[0].total || 1;
   document.getElementById("top").innerHTML =
-    `<thead><tr><th class="rank">#</th><th class="l">Account</th><th>Total</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th><th class="l" style="width:22%"></th></tr></thead><tbody>` +
+    `<thead><tr><th class="rank">#</th><th class="l">Account</th><th>Total</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th></tr></thead><tbody>` +
     list.map((u, i) => {
       const href = u.handle ? `https://hey.xyz/u/${encodeURIComponent(u.handle)}` : `https://explorer.lens.xyz/address/${u.address}`;
       const title = u.handle ? "@" + u.handle : (u.address.slice(0, 6) + "…" + u.address.slice(-4));
-      const bar = `<div style="height:6px;border-radius:3px;background:var(--grid)"><div style="height:6px;border-radius:3px;width:${(u.total / max * 100).toFixed(1)}%;background:var(--accent)"></div></div>`;
       return `<tr><td class="rank">${i + 1}</td>
         <td class="l"><div class="who"><span><button class="linkbtn" data-addr="${esc(u.address)}">${esc(title)}</button><a class="ext" href="${href}" target="_blank" rel="noopener" aria-label="Open profile">↗</a></span><small>${esc(u.name || "")}${u.name ? " · " : ""}${esc(u.address.slice(0, 10))}…</small></div></td>
-        <td><b>${fmt(u.total)}</b></td><td>${fmt(u.post)}</td><td>${fmt(u.comment)}</td><td>${fmt(u.quote)}</td><td>${fmt(u.repost)}</td><td class="l">${bar}</td></tr>`;
+        <td><b>${fmt(u.total)}</b></td><td>${fmt(u.post)}</td><td>${fmt(u.comment)}</td><td>${fmt(u.quote)}</td><td>${fmt(u.repost)}</td></tr>`;
     }).join("") + "</tbody>";
 }
 
@@ -408,7 +406,7 @@ async function loadUsers() {
 const uName = u => u[1] ? "@" + u[1] : u[0].slice(0, 6) + "…" + u[0].slice(-4);
 const SORT_COLS = [
   ["account", "Account", "l"], ["score", "Score"], ["total", "Total"], ["post", "Posts"], ["comment", "Comments"],
-  ["quote", "Quotes"], ["repost", "Reposts"], ["days", "Active days"], ["client", "Main client", "l"]
+  ["quote", "Quotes"], ["repost", "Reposts"], ["client", "Main client", "l"]
 ];
 const tableState = { sort: "total", dir: -1, limit: 10 };
 function accountRows() {
@@ -417,17 +415,17 @@ function accountRows() {
   const rows = [];
   for (const u of U.users) {
     if (u[2] != null && u[2] < state.minScore) continue;
-    const e = u[3], c = [0, 0, 0, 0], perApp = {}, days = new Set();
+    const e = u[3], c = [0, 0, 0, 0], perApp = {};
     for (let i = 0; i < e.length; i += 4) {
       const d = e[i] + U.dayOffset; if (d < lo || d >= hi) continue;
       const app = U.apps[e[i + 1]]; if (!app) continue;
       if (state.hideSpam && app[2]) continue;
       if (state.app !== "all" && (state.app === "other" ? shownApps.has(app[0]) : app[0] !== state.app)) continue;
-      c[e[i + 2]] += e[i + 3]; perApp[app[1]] = (perApp[app[1]] || 0) + e[i + 3]; days.add(d);
+      c[e[i + 2]] += e[i + 3]; perApp[app[1]] = (perApp[app[1]] || 0) + e[i + 3];
     }
     const total = c[0] + c[1] + c[2] + c[3]; if (!total) continue;
     const client = Object.entries(perApp).sort((a, b) => b[1] - a[1])[0][0];
-    rows.push({ u, account: (u[1] || u[0]).toLowerCase(), score: u[2] ?? -1, total, post: c[0], comment: c[1], quote: c[2], repost: c[3], days: days.size, client });
+    rows.push({ u, account: (u[1] || u[0]).toLowerCase(), score: u[2] ?? -1, total, post: c[0], comment: c[1], quote: c[2], repost: c[3], client });
   }
   return rows;
 }
@@ -442,18 +440,16 @@ function renderTop() {
   sub.textContent = `${appName(state.app)} · ${periodText(state.range)} · ${fmt(rows.length)} accounts${q ? " match" : ""} · click a column to sort, a name for details`;
   if (!rows.length) { tbl.innerHTML = `<tr><td class="empty">No account found</td></tr>`; return; }
   const shown = rows.slice(0, tableState.limit);
-  const max = Math.max(...shown.map(r => r.total), 1);
   const th = ([key, label, cls]) => `<th class="${cls || ""}"><button class="sortbtn${k === key ? " on" : ""}" data-sort="${key}" aria-sort="${k === key ? (dir < 0 ? "descending" : "ascending") : "none"}">${label}${k === key ? (dir < 0 ? " ▼" : " ▲") : ""}</button></th>`;
-  tbl.innerHTML = `<thead><tr><th class="rank">#</th>${SORT_COLS.map(th).join("")}<th class="l" style="width:14%"></th></tr></thead><tbody>` +
+  tbl.innerHTML = `<thead><tr><th class="rank">#</th>${SORT_COLS.map(th).join("")}</tr></thead><tbody>` +
     shown.map((r, i) => {
       const u = r.u, href = u[1] ? `https://hey.xyz/u/${encodeURIComponent(u[1])}` : `https://explorer.lens.xyz/address/${u[0]}`;
       return `<tr><td class="rank">${i + 1}</td>
         <td class="l"><div class="who"><span><button class="linkbtn" data-addr="${esc(u[0])}">${esc(uName(u))}</button><a class="ext" href="${href}" target="_blank" rel="noopener" aria-label="Open profile">↗</a></span><small>${esc(u[0].slice(0, 10))}…</small></div></td>
         <td>${u[2] == null ? "–" : fmt(u[2])}</td><td><b>${fmt(r.total)}</b></td><td>${fmt(r.post)}</td><td>${fmt(r.comment)}</td><td>${fmt(r.quote)}</td><td>${fmt(r.repost)}</td>
-        <td>${fmt(r.days)}</td><td class="l">${esc(r.client)}</td>
-        <td class="l"><div style="height:6px;border-radius:3px;background:var(--grid)"><div style="height:6px;border-radius:3px;width:${(r.total / max * 100).toFixed(1)}%;background:var(--accent)"></div></div></td></tr>`;
+        <td class="l">${esc(r.client)}</td></tr>`;
     }).join("") + "</tbody>" +
-    `<tfoot><tr><td colspan="11" class="muted" style="text-align:left">Showing ${fmt(shown.length)} of ${fmt(rows.length)} · show ${[10, 25, 100].map(n => `<button class="sortbtn${tableState.limit === n ? " on" : ""}" data-limit="${n}">${n}</button>`).join(" ")}</td></tr></tfoot>`;
+    `<tfoot><tr><td colspan="9" class="muted" style="text-align:left">Showing ${fmt(shown.length)} of ${fmt(rows.length)} · show ${[10, 25, 100].map(n => `<button class="sortbtn${tableState.limit === n ? " on" : ""}" data-limit="${n}">${n}</button>`).join(" ")}</td></tr></tfoot>`;
 }
 
 const LENS_Q = `query U($a: EvmAddress!){
