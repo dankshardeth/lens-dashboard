@@ -46,6 +46,9 @@ h2{font-size:15px;margin:0 0 2px}
 .seg button[aria-pressed="true"]{background:var(--wash);color:var(--ink);font-weight:600}
 select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
 label.f{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
+label.chk{color:var(--ink2);font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer}
+label.chk input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+#filterNote{margin:4px 0 0}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
 .tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
 .tile .k{color:var(--ink2);font-size:12px}
@@ -91,7 +94,7 @@ footer code{font-size:11px}
   <div class="filters" role="toolbar" aria-label="Filters">
     <label class="f">Period
       <span class="seg" id="range">
-        <button data-v="7">7 days</button><button data-v="30">30 days</button><button data-v="90">90 days</button>
+        <button data-v="1">1 day</button><button data-v="7">7 days</button><button data-v="30">30 days</button><button data-v="90">90 days</button>
       </span>
     </label>
     <label class="f">Client
@@ -106,7 +109,10 @@ footer code{font-size:11px}
         <option value="repost">Repost</option>
       </select>
     </label>
+    <label class="chk"><input type="checkbox" id="hideSpam"> Hide spam apps</label>
+    <label class="chk"><input type="checkbox" id="hideZero"> Hide 0-score accounts</label>
   </div>
+  <div class="sub" id="filterNote"></div>
 
   <section class="tiles" id="tiles"></section>
 
@@ -150,8 +156,8 @@ const fmt = n => n == null ? "–" : n.toLocaleString("en-US");
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-let D, charts = {};
-const state = { range: 30, app: "all", kind: "all" };
+let D, RAW, charts = {};
+const state = { range: 30, app: "all", kind: "all", hideSpam: true, hideZero: true };
 try { Object.assign(state, JSON.parse(localStorage.getItem("lensdash") || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem("lensdash", JSON.stringify(state)); } catch (e) {} };
 
@@ -171,6 +177,8 @@ function series(key, kind) {
   if (kind === "all") return d.post.map((_, i) => KINDS.reduce((s, k) => s + d[k][i], 0));
   return d[kind];
 }
+const periodText = r => r === 1 ? "yesterday" : `the last ${r} full days`;
+const prevText = r => r === 1 ? "vs. the day before" : `vs. previous ${r} days`;
 // window of full days [lo, hi), excluding today, matching collect.mjs
 function win(range, back = 0) { const hi = D.days.length - 1 - back * range; return [hi - range, hi]; }
 const sum = (arr, [lo, hi]) => lo < 0 ? null : arr.slice(lo, hi).reduce((a, b) => a + b, 0);
@@ -181,7 +189,7 @@ function delta(cur, prev) {
   const p = (cur - prev) / prev * 100;
   const cls = p > 0.5 ? "up" : p < -0.5 ? "down" : "";
   const arrow = p > 0.5 ? "▲" : p < -0.5 ? "▼" : "■";
-  return `<div class="d ${cls}">${arrow} ${Math.abs(p).toFixed(1)}% <span style="color:var(--muted)">vs. previous ${state.range} days</span></div>`;
+  return `<div class="d ${cls}">${arrow} ${Math.abs(p).toFixed(1)}% <span style="color:var(--muted)">${prevText(state.range)}</span></div>`;
 }
 
 function renderTiles() {
@@ -191,7 +199,7 @@ function renderTiles() {
   const all = series(k, "all");
   let html = tile("All content", sum(all, w), sum(all, pw));
   for (const kind of KINDS) html += tile(KIND_LABEL[kind], sum(D.daily[k][kind], w), sum(D.daily[k][kind], pw));
-  html += tile("Active posters", D.range_active[String(r)]?.[k], null, `unique accounts in ${r} days`);
+  html += tile("Active posters", D.range_active[String(r)]?.[k], null, r === 1 ? "unique accounts yesterday" : `unique accounts in ${r} days`);
   document.getElementById("tiles").innerHTML = html;
 }
 
@@ -224,7 +232,7 @@ function baseOptions(stacked) {
 }
 
 // visible days: the period plus today
-function visibleIdx() { const n = D.days.length; return [Math.max(0, n - 1 - state.range), n]; }
+function visibleIdx() { const n = D.days.length; return [Math.max(0, n - 1 - Math.max(state.range, 7)), n]; }
 const cut = arr => arr.slice(...visibleIdx());
 const isToday = i => visibleIdx()[0] + i === D.days.length - 1;
 const labels = () => cut(D.days.map((_, i) => i));
@@ -253,7 +261,7 @@ function legend(el, items) {
 
 function renderCharts() {
   const k = state.app, kindL = KIND_LABEL[state.kind].toLowerCase();
-  const sub = `${state.range} days + today (faded, in progress) · ${D.timezone}`;
+  const sub = `${Math.max(state.range, 7)} days + today (faded, in progress) · ${D.timezone}`;
 
   // 1) stacked by client (the client filter highlights one)
   const keys = D.apps.map(a => a.key);
@@ -280,7 +288,7 @@ function renderCharts() {
 
 function renderTop() {
   const list = D.top_users[String(state.range)]?.[state.app] || [];
-  document.getElementById("topSub").textContent = `${appName(state.app)} · last ${state.range} full days · ranked by all own content`;
+  document.getElementById("topSub").textContent = `${appName(state.app)} · ${periodText(state.range)} · ranked by all own content`;
   if (!list.length) { document.getElementById("top").innerHTML = `<tr><td class="empty">No data</td></tr>`; return; }
   const max = list[0].total || 1;
   document.getElementById("top").innerHTML =
@@ -297,7 +305,7 @@ function renderTop() {
 
 function renderApps() {
   const r = state.range, w = win(r), pw = win(r, 1);
-  document.getElementById("appsSub").textContent = `Last ${r} full days · change vs. the previous ${r} days`;
+  document.getElementById("appsSub").textContent = `${periodText(r)[0].toUpperCase() + periodText(r).slice(1)} · change ${prevText(r)}`;
   const rows = D.apps.map(a => {
     const d = D.daily[a.key], tot = sum(series(a.key, "all"), w), prev = sum(series(a.key, "all"), pw);
     return { a, tot, prev, post: sum(d.post, w), comment: sum(d.comment, w), quote: sum(d.quote, w), repost: sum(d.repost, w),
@@ -313,7 +321,25 @@ function renderApps() {
       <td>${fmt(x.active)}</td></tr>`).join("") + "</tbody>";
 }
 
+function applyVariant() {
+  const key = state.hideSpam ? (state.hideZero ? "clean" : "nospam") : (state.hideZero ? "noscore0" : "all");
+  const v = RAW.variants[key];
+  Object.assign(D, { apps: v.apps, daily: v.daily, range_active: v.range_active, top_users: v.top_users });
+  if (!D.daily[state.app]) state.app = "all";
+  const sel = document.getElementById("app");
+  sel.innerHTML = `<option value="all">All clients</option>` + D.apps.map(a => `<option value="${esc(a.key)}">${esc(appName(a.key))}</option>`).join("");
+  // how much the filters hide in the selected period
+  const w = win(state.range), tot = vv => KINDS.reduce((s, k) => s + (sum(vv.daily.all[k], w) || 0), 0);
+  const shown = tot(v), all = tot(RAW.variants.all);
+  const note = document.getElementById("filterNote");
+  note.textContent = shown === all ? "" :
+    `Filters hide ${fmt(all - shown)} of ${fmt(all)} items (${((all - shown) / all * 100).toFixed(0)}%) and ${fmt(RAW.variants.all.range_active[state.range].all - v.range_active[state.range].all)} accounts in ${periodText(state.range)}.`;
+}
+
 function renderAll() {
+  applyVariant();
+  document.getElementById("hideSpam").checked = state.hideSpam;
+  document.getElementById("hideZero").checked = state.hideZero;
   document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.range)));
   document.getElementById("app").value = state.app;
   document.getElementById("kind").value = state.kind;
@@ -327,12 +353,13 @@ async function init() {
     document.getElementById("meta").textContent = "Could not load data.json. Run: node collect.mjs";
     return;
   }
-  if (D.top_format) { // compact rows -> objects
-    for (const r of Object.values(D.top_users)) for (const k in r)
-      r[k] = r[k].map(row => { const u = Object.fromEntries(D.top_format.map((f, i) => [f, row[i]])); u.total = u.post + u.comment + u.quote + u.repost; return u; });
-  }
-  if (!D.daily[state.app]) state.app = "all";
-  if (![7, 30, 90].includes(state.range)) state.range = 30;
+  if (!D.variants) D.variants = { all: { apps: D.apps, daily: D.daily, range_active: D.range_active, top_users: D.top_users } };
+  for (const key of ["nospam", "noscore0", "clean"]) D.variants[key] ||= D.variants.all;
+  for (const v of Object.values(D.variants)) for (const r of Object.values(v.top_users)) for (const k in r)
+    r[k] = r[k].map(row => { if (!Array.isArray(row)) return row; const u = Object.fromEntries(D.top_format.map((f, i) => [f, row[i]])); u.total = u.post + u.comment + u.quote + u.repost; return u; });
+  RAW = D;
+  D = { ...RAW };
+  if (![1, 7, 30, 90].includes(state.range)) state.range = 30;
 
   const upd = new Date(D.generated_at);
   document.getElementById("meta").innerHTML =
@@ -342,8 +369,9 @@ async function init() {
   document.getElementById("banners").innerHTML = b;
 
   const sel = document.getElementById("app");
-  sel.innerHTML = `<option value="all">All clients</option>` + D.apps.map(a => `<option value="${esc(a.key)}">${esc(appName(a.key))}</option>`).join("");
   sel.onchange = () => { state.app = sel.value; save(); renderAll(); };
+  document.getElementById("hideSpam").onchange = e => { state.hideSpam = e.target.checked; save(); renderAll(); };
+  document.getElementById("hideZero").onchange = e => { state.hideZero = e.target.checked; save(); renderAll(); };
   document.getElementById("kind").onchange = e => { state.kind = e.target.value; save(); renderAll(); };
   document.querySelectorAll("#range button").forEach(btn => btn.onclick = () => { state.range = +btn.dataset.v; save(); renderAll(); });
 
@@ -352,7 +380,10 @@ async function init() {
     Client = the Lens app recorded with each piece of content on Lens Chain. Deleted posts are not included.
     Type: repost, comment (reply to a post), quote, otherwise post.
     Active posters = unique accounts that published anything in the day or period (period figures are counted separately, not summed from days).
-    Summary figures and the top list cover full days only; today appears on the charts only.`;
+    Summary figures and the top list cover full days only ("1 day" = yesterday); today appears on the charts only.
+    <br><b>Filters:</b> "Hide spam apps" removes content from apps flagged as automated spam (${esc((D.spam_apps || []).join(", ") || "none")}).
+    "Hide 0-score accounts" removes accounts whose current Lens account score is 0, which Lens gives to new, low-quality or bot accounts; this also hides some legitimate automated accounts such as news feeds.
+    ${D.accounts_total ? `Score known for ${fmt(D.accounts_score_known)} of ${fmt(D.accounts_total)} accounts in the window; ${fmt(D.accounts_score_zero)} have score 0.` : ""}`;
 
   renderAll();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
