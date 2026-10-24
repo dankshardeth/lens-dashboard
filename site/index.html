@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lens Activity</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --page:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10); --up:#006300; --down:#d03b3b;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+  --other:#a3a29b; --accent:#2a78d6; --wash:rgba(42,120,214,.10);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --up:#0ca30c; --down:#e66767;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --other:#6b6a65; --accent:#3987e5; --wash:rgba(57,135,229,.16);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0d0d0d; --surface:#1a1a19; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10); --up:#0ca30c; --down:#e66767;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  --other:#6b6a65; --accent:#3987e5; --wash:rgba(57,135,229,.16);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1200px;margin:0 auto;padding-block:24px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 24px;margin-bottom:16px}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}
+h2{font-size:15px;margin:0 0 2px}
+.sub{color:var(--ink2);font-size:13px}
+.demo{background:#fab219;color:#0b0b0b;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-weight:600}
+.warn{border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:10px 14px;margin-bottom:16px;color:var(--ink2)}
+.filters{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--page);display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 0;margin-bottom:8px;border-bottom:1px solid var(--border)}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;color:var(--ink2);padding:6px 12px;font:inherit;cursor:pointer}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.seg button[aria-pressed="true"]{background:var(--wash);color:var(--ink);font-weight:600}
+select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px}
+label.f{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.tile .k{color:var(--ink2);font-size:12px}
+.tile .v{font-size:26px;font-weight:650;margin-top:2px;letter-spacing:-.01em}
+.tile .d{font-size:12px;color:var(--muted);margin-top:2px}
+.tile .d.up{color:var(--up)} .tile .d.down{color:var(--down)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;min-width:0}
+.card .head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.chart{position:relative;height:300px}
+.chart.tall{height:340px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink2);margin-bottom:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:right;padding:8px 6px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums;white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px}
+th:first-child,td:first-child,th.l,td.l{text-align:left}
+tbody tr:hover{background:var(--wash)}
+.scroll{overflow-x:auto}
+.who{display:flex;flex-direction:column}
+.who a{color:var(--ink);text-decoration:none;font-weight:600}
+.who a:hover{text-decoration:underline}
+.who small{color:var(--muted);font-size:11px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px;vertical-align:baseline}
+.rank{color:var(--muted);width:28px}
+footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.6}
+footer code{font-size:11px}
+.empty{padding:40px;text-align:center;color:var(--ink2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Lens Protocol activity</h1>
+      <div class="sub" id="meta">Loading…</div>
+    </div>
+  </header>
+  <div id="banners"></div>
+
+  <div class="filters" role="toolbar" aria-label="Filters">
+    <label class="f">Period
+      <span class="seg" id="range">
+        <button data-v="7">7 days</button><button data-v="30">30 days</button><button data-v="90">90 days</button>
+      </span>
+    </label>
+    <label class="f">Client
+      <select id="app"></select>
+    </label>
+    <label class="f">Type
+      <select id="kind">
+        <option value="all">All content</option>
+        <option value="post">Post</option>
+        <option value="comment">Comment</option>
+        <option value="quote">Quote</option>
+        <option value="repost">Repost</option>
+      </select>
+    </label>
+  </div>
+
+  <section class="tiles" id="tiles"></section>
+
+  <div class="card">
+    <div class="head">
+      <div><h2>Daily content by client</h2><div class="sub" id="byAppSub"></div></div>
+    </div>
+    <div class="legend" id="byAppLegend"></div>
+    <div class="chart tall"><canvas id="cByApp"></canvas></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="head"><div><h2>Daily content by type</h2><div class="sub" id="byKindSub"></div></div></div>
+      <div class="legend" id="byKindLegend"></div>
+      <div class="chart"><canvas id="cByKind"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="head"><div><h2>Daily active posters</h2><div class="sub" id="activeSub"></div></div></div>
+      <div class="chart"><canvas id="cActive"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="head"><div><h2>Top 10 most active accounts</h2><div class="sub" id="topSub"></div></div></div>
+    <div class="scroll"><table id="top"></table></div>
+  </div>
+
+  <div class="card">
+    <div class="head"><div><h2>Client comparison</h2><div class="sub" id="appsSub"></div></div></div>
+    <div class="scroll"><table id="apps"></table></div>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const KINDS = ["post","comment","quote","repost"];
+const KIND_LABEL = {post:"Posts", comment:"Comments", quote:"Quotes", repost:"Reposts", all:"All content"};
+const fmt = n => n == null ? "–" : n.toLocaleString("en-US");
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let D, charts = {};
+const state = { range: 30, app: "all", kind: "all" };
+try { Object.assign(state, JSON.parse(localStorage.getItem("lensdash") || "{}")); } catch (e) {}
+const save = () => { try { localStorage.setItem("lensdash", JSON.stringify(state)); } catch (e) {} };
+
+function appColor(key) {
+  if (key === "other") return css("--other");
+  const i = D.apps.findIndex(a => a.key === key);
+  return css("--s" + (i + 1));          // color follows the app, not its rank
+}
+const kindColor = k => css("--s" + (KINDS.indexOf(k) + 1));
+const APP_EN = {other:"Other apps", none:"Unknown / no app"};
+const appName = key => key === "all" ? "All clients" : APP_EN[key] || (D.apps.find(a => a.key === key) || {}).name || key;
+
+// daily series for one app and type
+function series(key, kind) {
+  const d = D.daily[key];
+  if (!d) return [];
+  if (kind === "all") return d.post.map((_, i) => KINDS.reduce((s, k) => s + d[k][i], 0));
+  return d[kind];
+}
+// window of full days [lo, hi), excluding today, matching collect.mjs
+function win(range, back = 0) { const hi = D.days.length - 1 - back * range; return [hi - range, hi]; }
+const sum = (arr, [lo, hi]) => lo < 0 ? null : arr.slice(lo, hi).reduce((a, b) => a + b, 0);
+
+function delta(cur, prev) {
+  if (prev == null || cur == null) return `<div class="d">–</div>`;
+  if (prev === 0) return `<div class="d">previous period: 0</div>`;
+  const p = (cur - prev) / prev * 100;
+  const cls = p > 0.5 ? "up" : p < -0.5 ? "down" : "";
+  const arrow = p > 0.5 ? "▲" : p < -0.5 ? "▼" : "■";
+  return `<div class="d ${cls}">${arrow} ${Math.abs(p).toFixed(1)}% <span style="color:var(--muted)">vs. previous ${state.range} days</span></div>`;
+}
+
+function renderTiles() {
+  const k = state.app, r = state.range, w = win(r), pw = win(r, 1);
+  const tile = (label, cur, prev, note) =>
+    `<div class="tile"><div class="k">${label}</div><div class="v">${fmt(cur)}</div>${note ? `<div class="d">${note}</div>` : delta(cur, prev)}</div>`;
+  const all = series(k, "all");
+  let html = tile("All content", sum(all, w), sum(all, pw));
+  for (const kind of KINDS) html += tile(KIND_LABEL[kind], sum(D.daily[k][kind], w), sum(D.daily[k][kind], pw));
+  html += tile("Active posters", D.range_active[String(r)]?.[k], null, `unique accounts in ${r} days`);
+  document.getElementById("tiles").innerHTML = html;
+}
+
+function baseOptions(stacked) {
+  const grid = css("--grid"), muted = css("--muted"), axis = css("--axis");
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: css("--surface"), titleColor: css("--ink"), bodyColor: css("--ink2"),
+        borderColor: css("--axis"), borderWidth: 1, padding: 10, boxPadding: 4, usePointStyle: true,
+        itemSort: (a, b) => b.raw - a.raw,
+        filter: it => it.raw > 0 || it.chart.data.datasets.length === 1,
+        callbacks: {
+          title: it => { const i = it[0].dataIndex; const d = D.days[i]; return d + (i === D.days.length - 1 ? " (today, in progress)" : ""); },
+          label: it => ` ${it.dataset.label}: ${fmt(it.raw)}`,
+          footer: it => stacked && it.length > 1 ? `Total: ${fmt(it.reduce((s, x) => s + x.raw, 0))}` : ""
+        }
+      }
+    },
+    scales: {
+      x: { stacked, grid: { display: false }, border: { color: axis },
+           ticks: { color: muted, maxRotation: 0, autoSkipPadding: 16, callback(v) { return D.days[v].slice(5).replace("-", "."); } } },
+      y: { stacked, beginAtZero: true, grid: { color: grid }, border: { display: false },
+           ticks: { color: muted, callback: v => fmt(v), maxTicksLimit: 6 } }
+    }
+  };
+}
+
+// visible days: the period plus today
+function visibleIdx() { const n = D.days.length; return [Math.max(0, n - 1 - state.range), n]; }
+const cut = arr => arr.slice(...visibleIdx());
+const isToday = i => visibleIdx()[0] + i === D.days.length - 1;
+const labels = () => cut(D.days.map((_, i) => i));
+
+function draw(id, type, datasets, stacked) {
+  const opts = baseOptions(stacked);
+  opts.scales.x.ticks.callback = v => D.days[labels()[v]].slice(5).replace("-", ".");
+  opts.plugins.tooltip.callbacks.title = it => { const gi = labels()[it[0].dataIndex]; return D.days[gi] + (gi === D.days.length - 1 ? " (today, in progress)" : ""); };
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), { type, data: { labels: labels(), datasets }, options: opts });
+}
+const barDs = (label, data, color) => ({
+  label, data: cut(data), backgroundColor: data.map ? cut(data).map((_, i) => isToday(i) ? color + "66" : color) : color,
+  borderColor: css("--surface"), borderWidth: { top: 0, bottom: 0, left: 1, right: 1 }, borderRadius: 2, borderSkipped: false,
+  categoryPercentage: .9, barPercentage: 1
+});
+const lineDs = (label, data, color) => ({
+  label, data: cut(data), borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 0,
+  pointHoverRadius: 4, pointHoverBorderColor: css("--surface"), pointHoverBorderWidth: 2, tension: .25,
+  segment: { borderDash: c => isToday(c.p1DataIndex) ? [4, 4] : undefined }
+});
+
+function legend(el, items) {
+  document.getElementById(el).innerHTML = items.map(([n, c]) => `<span><i style="background:${c}"></i>${esc(n)}</span>`).join("");
+}
+
+function renderCharts() {
+  const k = state.app, kindL = KIND_LABEL[state.kind].toLowerCase();
+  const sub = `${state.range} days + today (faded, in progress) · ${D.timezone}`;
+
+  // 1) stacked by client (the client filter highlights one)
+  const keys = D.apps.map(a => a.key);
+  const ds = keys.map(key => {
+    const c = appColor(key);
+    const d = barDs(appName(key), series(key, state.kind), c);
+    if (k !== "all" && key !== k) d.backgroundColor = d.backgroundColor.map(() => c + "33");
+    return d;
+  });
+  draw("cByApp", "bar", ds, true);
+  legend("byAppLegend", keys.map(key => [appName(key), appColor(key)]));
+  document.getElementById("byAppSub").textContent = `${KIND_LABEL[state.kind]} · ${sub}`;
+
+  // 2) by type (for the selected client)
+  draw("cByKind", "line", KINDS.map(kd => lineDs(KIND_LABEL[kd], D.daily[k][kd], kindColor(kd))), false);
+  legend("byKindLegend", KINDS.map(kd => [KIND_LABEL[kd], kindColor(kd)]));
+  document.getElementById("byKindSub").textContent = `${appName(k)} · ${sub}`;
+
+  const one = k === "all" ? css("--accent") : appColor(k);
+  draw("cActive", "line", [lineDs("Active posters", D.daily[k].active, one)], false);
+  document.getElementById("activeSub").textContent = `${appName(k)} · unique accounts that published content that day`;
+
+}
+
+function renderTop() {
+  const list = D.top_users[String(state.range)]?.[state.app] || [];
+  document.getElementById("topSub").textContent = `${appName(state.app)} · last ${state.range} full days · ranked by all own content`;
+  if (!list.length) { document.getElementById("top").innerHTML = `<tr><td class="empty">No data</td></tr>`; return; }
+  const max = list[0].total || 1;
+  document.getElementById("top").innerHTML =
+    `<thead><tr><th class="rank">#</th><th class="l">Account</th><th>Total</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th><th class="l" style="width:22%"></th></tr></thead><tbody>` +
+    list.map((u, i) => {
+      const href = u.handle ? `https://hey.xyz/u/${encodeURIComponent(u.handle)}` : `https://explorer.lens.xyz/address/${u.address}`;
+      const title = u.handle ? "@" + u.handle : (u.address.slice(0, 6) + "…" + u.address.slice(-4));
+      const bar = `<div style="height:6px;border-radius:3px;background:var(--grid)"><div style="height:6px;border-radius:3px;width:${(u.total / max * 100).toFixed(1)}%;background:var(--accent)"></div></div>`;
+      return `<tr><td class="rank">${i + 1}</td>
+        <td class="l"><div class="who"><a href="${href}" target="_blank" rel="noopener">${esc(title)}</a><small>${esc(u.name || "")}${u.name ? " · " : ""}${esc(u.address.slice(0, 10))}…</small></div></td>
+        <td><b>${fmt(u.total)}</b></td><td>${fmt(u.post)}</td><td>${fmt(u.comment)}</td><td>${fmt(u.quote)}</td><td>${fmt(u.repost)}</td><td class="l">${bar}</td></tr>`;
+    }).join("") + "</tbody>";
+}
+
+function renderApps() {
+  const r = state.range, w = win(r), pw = win(r, 1);
+  document.getElementById("appsSub").textContent = `Last ${r} full days · change vs. the previous ${r} days`;
+  const rows = D.apps.map(a => {
+    const d = D.daily[a.key], tot = sum(series(a.key, "all"), w), prev = sum(series(a.key, "all"), pw);
+    return { a, tot, prev, post: sum(d.post, w), comment: sum(d.comment, w), quote: sum(d.quote, w), repost: sum(d.repost, w),
+             active: D.range_active[String(r)]?.[a.key] };
+  }).sort((x, y) => (y.a.key !== "other") - (x.a.key !== "other") || y.tot - x.tot);
+  const all = sum(series("all", "all"), w) || 1;
+  const chg = (c, p) => p == null || !p ? "–" : `<span style="color:var(${c >= p ? "--up" : "--down"})">${c >= p ? "+" : "−"}${Math.abs((c - p) / p * 100).toFixed(1)}%</span>`;
+  document.getElementById("apps").innerHTML =
+    `<thead><tr><th class="l">Client</th><th>Content</th><th>Share</th><th>Change</th><th>Posts</th><th>Comments</th><th>Quotes</th><th>Reposts</th><th>Active posters</th></tr></thead><tbody>` +
+    rows.map(x => `<tr><td class="l"><span class="dot" style="background:${appColor(x.a.key)}"></span>${x.a.website ? `<a href="${esc(x.a.website)}" target="_blank" rel="noopener" style="color:inherit">${esc(appName(x.a.key))}</a>` : esc(appName(x.a.key))}</td>
+      <td><b>${fmt(x.tot)}</b></td><td>${(x.tot / all * 100).toFixed(1)}%</td><td>${chg(x.tot, x.prev)}</td>
+      <td>${fmt(x.post)}</td><td>${fmt(x.comment)}</td><td>${fmt(x.quote)}</td><td>${fmt(x.repost)}</td>
+      <td>${fmt(x.active)}</td></tr>`).join("") + "</tbody>";
+}
+
+function renderAll() {
+  document.querySelectorAll("#range button").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.v === state.range)));
+  document.getElementById("app").value = state.app;
+  document.getElementById("kind").value = state.kind;
+  renderTiles(); renderCharts(); renderTop(); renderApps();
+}
+
+async function init() {
+  try {
+    D = window.LENS_DATA || await (await fetch("data.json", { cache: "no-store" })).json();
+  } catch (e) {
+    document.getElementById("meta").textContent = "Could not load data.json. Run: node collect.mjs";
+    return;
+  }
+  if (D.top_format) { // compact rows -> objects
+    for (const r of Object.values(D.top_users)) for (const k in r)
+      r[k] = r[k].map(row => { const u = Object.fromEntries(D.top_format.map((f, i) => [f, row[i]])); u.total = u.post + u.comment + u.quote + u.repost; return u; });
+  }
+  if (!D.daily[state.app]) state.app = "all";
+  if (![7, 30, 90].includes(state.range)) state.range = 30;
+
+  const upd = new Date(D.generated_at);
+  document.getElementById("meta").innerHTML =
+    `Updated: ${upd.toLocaleString("en-US")} · daily buckets: ${esc(D.timezone)} · source: Lens API, live`;
+  let b = "";
+  if (D.demo) b += `<div class="demo">⚠ DEMO DATA – these are made-up numbers for trying out the interface. For real data, run: node collect.mjs</div>`;
+  document.getElementById("banners").innerHTML = b;
+
+  const sel = document.getElementById("app");
+  sel.innerHTML = `<option value="all">All clients</option>` + D.apps.map(a => `<option value="${esc(a.key)}">${esc(appName(a.key))}</option>`).join("");
+  sel.onchange = () => { state.app = sel.value; save(); renderAll(); };
+  document.getElementById("kind").onchange = e => { state.kind = e.target.value; save(); renderAll(); };
+  document.querySelectorAll("#range button").forEach(btn => btn.onclick = () => { state.range = +btn.dataset.v; save(); renderAll(); });
+
+  document.getElementById("foot").innerHTML = `
+    <b>Source:</b> the public <a href="https://lens.xyz/docs/protocol" style="color:inherit">Lens API</a> (api.lens.xyz), collected every few hours.
+    Client = the Lens app recorded with each piece of content on Lens Chain. Deleted posts are not included.
+    Type: repost, comment (reply to a post), quote, otherwise post.
+    Active posters = unique accounts that published anything in the day or period (period figures are counted separately, not summed from days).
+    Summary figures and the top list cover full days only; today appears on the charts only.`;
+
+  renderAll();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+}
+init();
+</script>
+</body>
+</html>
