@@ -9,6 +9,7 @@ A static, free-to-run dashboard of Lens Protocol (Lens Chain) activity:
 - client comparison table with share and change vs. the previous period
 - periods: 1 day (yesterday), 7, 30 and 90 days
 - filters: hide spam apps, and a minimum Lens account score (any, 1+, 5,000+, 9,000+)
+- a separate Groups page: daily content by group, a sortable group table with member counts, the most active accounts per group, and live group details
 
 ## Methodology
 
@@ -18,4 +19,5 @@ A static, free-to-run dashboard of Lens Protocol (Lens Chain) activity:
 - Summary figures and the top 10 cover full days only ("1 day" = yesterday); today appears on the charts only.
 - **Spam apps** are listed in `SPAM_APPS` in `collect.mjs` (currently Gallery Publisher, which posts mass link spam from throwaway accounts).
 - **Account score** is the Lens account score (1–10,000), an ML estimate of how likely an account is genuine. Below 5,000 are mostly unscored, one-off campaign, farming and bot accounts; 9,000+ are established accounts. Scores are current values, so a new real user can start low.
+- **Group** = the group whose feed the content was published in. Comments and quotes count in the group of the post they reply to or quote; reposts count in the group of the reposted post. Member counts come from the Lens API and are recorded once a day.
 - The API returns publicly visible posts only. Content that Lens hides or deletes does not appear here.
