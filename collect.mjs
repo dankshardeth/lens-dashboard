@@ -142,11 +142,11 @@ export async function fetchScores(accounts, log = () => {}) {
   return out;
 }
 
-// Name, icon and member count of groups, 20 per request (GraphQL aliases)
+// Name, icon and member count of groups, 5 per request (the API allows 10 top-level aliases)
 export async function fetchGroupInfo(addrs, log = () => {}) {
   const out = {};
-  for (let i = 0; i < addrs.length; i += 20) {
-    const batch = addrs.slice(i, i + 20);
+  for (let i = 0; i < addrs.length; i += 5) {
+    const batch = addrs.slice(i, i + 5);
     const q = "query G{" + batch.map((a, j) => `g${j}: group(request:{group:"${a}"}){ metadata{ name icon } } s${j}: groupStats(request:{group:"${a}"}){ totalMembers }`).join(" ") + "}";
     try {
       const d = await gql(q);
