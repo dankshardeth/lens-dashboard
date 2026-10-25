@@ -155,6 +155,7 @@ tfoot .sortbtn.on{background:var(--accent);color:var(--accent-ink);box-shadow:no
 .post{background:var(--surface);box-shadow:var(--ring);border-radius:12px;padding:10px 12px;font-size:13px}
 .post .meta{color:var(--muted);font-size:11px;margin-bottom:4px}
 .post .txt{overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+#tiles{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
 </style>
 </head>
 <body>
@@ -470,7 +471,7 @@ function renderTop() {
 // ---------------------------------------------------------------- selected group: live details from the Lens API
 const GROUP_Q = `query G($g: EvmAddress!){ group(request:{group:$g}){ address owner timestamp feed{ address } metadata{ name description icon } } groupStats(request:{group:$g}){ totalMembers } }`;
 const CONTENT = "... on TextOnlyMetadata{ content } ... on ImageMetadata{ content } ... on VideoMetadata{ content } ... on LinkMetadata{ content } ... on ArticleMetadata{ content } ... on AudioMetadata{ content }";
-const FEED_Q = `query F($f: EvmAddress!){ posts(request:{pageSize: TEN, filter:{feeds:[{feed:$f}], postTypes:[ROOT,QUOTE]}}){ items{ ... on Post { slug timestamp author{ username{ localName } address } metadata{ ${CONTENT} } stats{ comments reactions } } } } }`;
+const FEED_Q = `query F($f: EvmAddress!, $s: Int){ posts(request:{pageSize: TEN, filter:{feeds:[{feed:$f}], postTypes:[ROOT,QUOTE], accountScore:{atLeast:$s}}}){ items{ ... on Post { slug timestamp author{ username{ localName } address } metadata{ ${CONTENT} } stats{ comments reactions } } } } }`;
 let groupReq = 0;
 async function renderGroupCard() {
   const card = document.getElementById("groupCard");
@@ -483,7 +484,7 @@ async function renderGroupCard() {
       <div class="gdesc" id="gDesc"></div>
       <div class="ulinks"><a href="https://explorer.lens.xyz/address/${esc(g[0])}" target="_blank" rel="noopener">Lens explorer ↗</a><button class="clear" id="gClear">Show all groups</button></div>
     </div></div>
-    <h3 style="font:500 14px var(--font-display);margin:18px 0 8px;color:var(--ink2)">Latest posts (live from the Lens API)</h3>
+    <h3 style="font:500 14px var(--font-display);margin:18px 0 8px;color:var(--ink2)">Latest posts (live from the Lens API, same score filter)</h3>
     <div class="posts" id="gPosts"><div class="muted" style="font-size:13px">Loading…</div></div>`;
   document.getElementById("gClear").onclick = () => setGroup("all");
   try {
@@ -494,10 +495,10 @@ async function renderGroupCard() {
     if (d?.groupStats?.totalMembers != null) document.getElementById("gMembers").textContent = fmt(d.groupStats.totalMembers);
     if (gr?.timestamp) document.getElementById("gCreated").textContent = " · created " + gr.timestamp.slice(0, 10);
     const f = gr?.feed?.address;
-    const p = f ? await gql(FEED_Q, { f }) : null;
+    const p = f ? await gql(FEED_Q, { f, s: state.minScore }) : null;
     if (my !== groupReq) return;
     const items = (p?.posts?.items || []).filter(x => x.slug);
-    document.getElementById("gPosts").innerHTML = items.length ? items.slice(0, 5).map(x => {
+    document.getElementById("gPosts").innerHTML = items.length ? items.slice(0, 3).map(x => {
       const who = x.author?.username?.localName ? "@" + x.author.username.localName : (x.author?.address || "").slice(0, 8) + "…";
       const txt = (x.metadata?.content || "").trim() || "(media post)";
       return `<a class="post" href="https://hey.xyz/posts/${encodeURIComponent(x.slug)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none">
