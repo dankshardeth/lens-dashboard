@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lens Activity</title>
+<script>try { const t = localStorage.getItem("lenstheme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;600&family=Inter:wght@400;500;600&display=swap">
@@ -143,12 +144,22 @@ tfoot .sortbtn.on{background:var(--accent);color:var(--accent-ink);box-shadow:no
 .nav a{color:var(--ink2);text-decoration:none;font-size:14px;padding:6px 14px;border-radius:9px}
 .nav a:hover{color:var(--ink);background:var(--surface)}
 .nav a[aria-current="page"]{background:var(--accent);color:var(--accent-ink);font-weight:500}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.topbar .nav{margin-bottom:0}
+.theme{position:relative;display:inline-flex;align-items:center;gap:10px;color:var(--ink2);font-size:13px;cursor:pointer;user-select:none}
+.theme input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.theme .sw{position:relative;width:44px;height:24px;border-radius:99px;background:var(--card);box-shadow:var(--ring);transition:background .22s}
+.theme .sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .22s cubic-bezier(.175,.885,.32,1.1)}
+.theme input:checked+.sw{background:var(--accent)}
+.theme input:checked+.sw::after{transform:translateX(20px)}
+.theme input:focus-visible+.sw{outline:2px solid var(--accent);outline-offset:2px}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <nav class="nav" aria-label="Pages"><a href="./" aria-current="page">Overview</a><a href="groups.html">Groups</a></nav>
+  <div class="topbar">
+  <nav class="nav" aria-label="Pages"><a href="./" aria-current="page">Overview</a><a href="groups.html">Groups</a></nav><label class="theme"><span>Dark mode</span><input type="checkbox" id="themeToggle" role="switch"><span class="sw" aria-hidden="true"></span></label></div>
   <header>
     <div>
       <h1>Lens Protocol activity</h1>
@@ -546,6 +557,13 @@ function renderAll() {
 }
 
 async function init() {
+  // dark mode switch: follows the system until the visitor picks one, then remembers it
+  const root = document.documentElement, tt = document.getElementById("themeToggle");
+  const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const redraw = () => { try { renderAll(); } catch (e) {} };
+  tt.checked = isDark();
+  tt.onchange = () => { root.dataset.theme = tt.checked ? "dark" : "light"; try { localStorage.setItem("lenstheme", root.dataset.theme); } catch (e) {} redraw(); };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { tt.checked = isDark(); redraw(); });
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   try {
     D = window.LENS_DATA || await (await fetch("data.json", { cache: "no-store" })).json();
@@ -599,7 +617,6 @@ async function init() {
   document.getElementById("user").addEventListener("click", e => { if (e.target.id === "user") e.target.close(); });
 
   renderAll();
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
   loadUsers().then(renderTop);
 }
 init();
