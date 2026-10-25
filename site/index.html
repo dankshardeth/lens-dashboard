@@ -139,11 +139,16 @@ dialog#user::backdrop{background:rgba(20,21,24,.4);backdrop-filter:blur(3px)}
 tfoot .sortbtn{padding:3px 9px;border-radius:7px;box-shadow:var(--ring);background:var(--surface);margin-left:2px}
 tfoot .sortbtn.on{background:var(--accent);color:var(--accent-ink);box-shadow:none}
 .sortbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.nav{display:inline-flex;gap:4px;padding:3px;border-radius:12px;background:var(--card);box-shadow:var(--ring);margin-bottom:14px}
+.nav a{color:var(--ink2);text-decoration:none;font-size:14px;padding:6px 14px;border-radius:9px}
+.nav a:hover{color:var(--ink);background:var(--surface)}
+.nav a[aria-current="page"]{background:var(--accent);color:var(--accent-ink);font-weight:500}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
+  <nav class="nav" aria-label="Pages"><a href="./" aria-current="page">Overview</a><a href="groups.html">Groups</a></nav>
   <header>
     <div>
       <h1>Lens Protocol activity</h1>
