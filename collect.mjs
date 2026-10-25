@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lens Protocol activity collector -> data/days/*.json + site/data.json
+// Lens Protocol activity collector -> data/days/*.json + site/data.json, users.json, groups.json
 //
 // Source: the public Lens API (https://api.lens.xyz/graphql). Free, no key, live data.
 // Usage:  node collect.mjs            (Node 18+, no dependencies)
@@ -37,6 +37,9 @@ export const SPAM_APPS = {
   "0x840f9759d25ca59b025d95e43ed0aafccb1137c7": "Gallery Publisher", // mass link spam from throwaway accounts
 };
 
+// Groups whose content is automated spam (lower-case address -> name). Hidden with "Hide spam" on the Groups page.
+export const SPAM_GROUPS = {};
+
 // Filter combinations precomputed for the dashboard: spam apps shown (s) or hidden (n) x minimum account score.
 // Lens account score: 1..10000, an ML estimate of how likely the account is genuine (0 = not scored / flagged).
 export const MIN_SCORES = [0, 1, 5000, 9000];
@@ -45,8 +48,8 @@ export const VARIANTS = Object.fromEntries([true, false].flatMap(spam =>
 
 const POSTS_Q = `query P($c: Cursor){ posts(request:{pageSize: FIFTY, cursor: $c, filter:{postTypes:[ROOT,COMMENT,QUOTE,REPOST]}}){
   items{ __typename
-    ... on Post { timestamp author{ address score username{ localName } } app{ address } commentOn{ id } quoteOf{ id } }
-    ... on Repost { timestamp author{ address score username{ localName } } app{ address } } }
+    ... on Post { timestamp author{ address score username{ localName } } app{ address } commentOn{ id } quoteOf{ id } feed{ group{ address } } }
+    ... on Repost { timestamp author{ address score username{ localName } } app{ address } repostOf{ feed{ group{ address } } } } }
   pageInfo{ next } } }`;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -90,8 +93,15 @@ export function classify(p) {
   return "post";
 }
 
+// Group the content was published in ("" = global feed). Comments and quotes share their parent's feed;
+// reposts have no feed of their own, so the reposted post's group is used.
+export function groupOf(p) {
+  const g = p.__typename === "Repost" ? p.repostOf?.feed?.group : p.feed?.group;
+  return (g?.address || "").toLowerCase();
+}
+
 // Fetch posts newest-first until the day boundary `fromDay` (inclusive) is passed.
-// Returns { agg: {day: {"app|account|kind": n}}, handles: {account: localName}, scores: {account: score} }
+// Returns { agg: {day: {"app|account|kind|group": n}}, handles: {account: localName}, scores: {account: score} }
 export async function fetchSince(fromDay, tz, log = () => {}) {
   const agg = {}, handles = {}, scores = {};
   let cursor = null, pages = 0, n = 0;
@@ -105,7 +115,7 @@ export async function fetchSince(fromDay, tz, log = () => {}) {
       if (day < fromDay) { passed = true; continue; }
       const acct = (p.author?.address || "").toLowerCase();
       const app = (p.app?.address || "none").toLowerCase();
-      const key = app + "|" + acct + "|" + classify(p);
+      const key = app + "|" + acct + "|" + classify(p) + "|" + groupOf(p);
       (agg[day] ||= {})[key] = ((agg[day] ||= {})[key] || 0) + 1;
       if (p.author?.username?.localName) handles[acct] ||= p.author.username.localName;
       if (typeof p.author?.score === "number" && !(acct in scores)) scores[acct] = p.author.score;
@@ -128,6 +138,23 @@ export async function fetchScores(accounts, log = () => {}) {
       const d = await gql(`query S($a: [EvmAddress!]!){ accountsBulk(request:{addresses:$a}){ address score } }`, { a: batch });
       for (const a of d.accountsBulk) out[a.address.toLowerCase()] = a.score;
     } catch (e) { log("  score batch failed: " + e.message); }
+  }
+  return out;
+}
+
+// Name, icon and member count of groups, 20 per request (GraphQL aliases)
+export async function fetchGroupInfo(addrs, log = () => {}) {
+  const out = {};
+  for (let i = 0; i < addrs.length; i += 20) {
+    const batch = addrs.slice(i, i + 20);
+    const q = "query G{" + batch.map((a, j) => `g${j}: group(request:{group:"${a}"}){ metadata{ name icon } } s${j}: groupStats(request:{group:"${a}"}){ totalMembers }`).join(" ") + "}";
+    try {
+      const d = await gql(q);
+      batch.forEach((a, j) => {
+        const m = d["g" + j]?.metadata;
+        out[a] = { name: m?.name?.trim() || null, icon: m?.icon || null, members: d["s" + j]?.totalMembers ?? null };
+      });
+    } catch (e) { log("  group batch failed: " + e.message); }
   }
   return out;
 }
@@ -189,6 +216,44 @@ export function buildUsers({ agg, handles, appNames, scores = {}, days }) {
     .sort((p, q) => q[1].total - p[1].total)
     .map(([acct, x]) => [acct, handles[acct] || null, typeof scores[acct] === "number" ? scores[acct] : null, x.e]);
   return { v: 2, days, apps, users };
+}
+
+// Drop the group from the keys ("app|acct|kind|group" -> "app|acct|kind") for data.json and users.json.
+export function withoutGroups(agg) {
+  const out = {};
+  for (const [d, o] of Object.entries(agg)) {
+    const x = (out[d] = {});
+    for (const [k, n] of Object.entries(o)) { const p = k.split("|"), kk = p[0] + "|" + p[1] + "|" + p[2]; x[kk] = (x[kk] || 0) + n; }
+  }
+  return out;
+}
+
+// Group activity for the Groups page (site/groups.json).
+// groups: [address, name, icon, members, membersWeekAgo, isSpam], most active first
+// apps: [address, name, isSpam]; accounts: [address, handle, score]
+// e: flat [dayIdx, groupIdx, appIdx, accountIdx, kindIdx, n, ...]
+export function buildGroups({ agg, handles, appNames, scores = {}, days, groupInfo = {}, members = {} }) {
+  const nameOf = a => HIGHLIGHT[a] || appNames[a] || SPAM_APPS[a] || (a === "none" ? "Unknown / no app" : a.slice(0, 8) + "…" + a.slice(-4));
+  const vol = {};
+  for (const d of days) for (const [k, n] of Object.entries(agg[d] || {})) { const g = k.split("|")[3]; if (g) vol[g] = (vol[g] || 0) + n; }
+  const gList = Object.keys(vol).sort((a, b) => vol[b] - vol[a]);
+  const gIdx = Object.fromEntries(gList.map((g, i) => [g, i]));
+  const appIdx = {}, apps = [], acctIdx = {}, accounts = [], e = [];
+  days.forEach((d, i) => {
+    for (const [k, n] of Object.entries(agg[d] || {})) {
+      const [app, acct, kind, g] = k.split("|");
+      if (!g) continue;
+      if (!(app in appIdx)) { appIdx[app] = apps.length; apps.push([app, nameOf(app), !!SPAM_APPS[app]]); }
+      if (!(acct in acctIdx)) { acctIdx[acct] = accounts.length; accounts.push([acct, handles[acct] || null, typeof scores[acct] === "number" ? scores[acct] : null]); }
+      e.push(i, gIdx[g], appIdx[app], acctIdx[acct], KINDS.indexOf(kind), n);
+    }
+  });
+  const today = days.at(-1), weekAgo = days[Math.max(0, days.length - 8)];
+  const groups = gList.map(g => {
+    const info = groupInfo[g] || {}, hist = members[g] || {};
+    return [g, info.name || null, info.icon || null, hist[today] ?? info.members ?? null, hist[weekAgo] ?? null, !!SPAM_GROUPS[g]];
+  });
+  return { v: 1, days, groups, apps, accounts, e };
 }
 
 function buildVariant({ agg, handles, appNames, days, keep }) {
@@ -273,13 +338,15 @@ async function main() {
   const have = new Set(readdirSync(dayDir).map(f => f.replace(".json", "")));
   const refetchFrom = days[days.length - 1 - REFETCH];
   const missing = days.filter(d => !have.has(d) && d < refetchFrom);
-  const fromDay = missing.length ? missing[0] : refetchFrom;
+  // day files from before group tracking (meta.groupsV) are re-fetched once, whole window
+  const fromDay = meta.groupsV !== 1 ? days[0] : missing.length ? missing[0] : refetchFrom;
   console.log(`Lens collector: window ${days[0]}..${days.at(-1)} (${TZ}), fetching from ${fromDay}`);
 
   const { agg, handles, scores } = await fetchSince(fromDay, TZ, console.log);
   for (const d of days.filter(d => d >= fromDay)) {
     writeFileSync(join(dayDir, d + ".json"), JSON.stringify(agg[d] || {}));
   }
+  meta.groupsV = 1;
   // prune days that fell out of the window
   for (const f of readdirSync(dayDir)) if (f.replace(".json", "") < days[0]) unlinkSync(join(dayDir, f));
 
@@ -287,6 +354,7 @@ async function main() {
   Object.assign(meta.scores, scores);
   const all = {};
   for (const d of days) { const p = join(dayDir, d + ".json"); if (existsSync(p)) all[d] = JSON.parse(readFileSync(p, "utf8")); }
+  const flat = withoutGroups(all);
 
   // Account scores: fill unknown accounts every run, refresh all window accounts once a day
   const windowAccts = [...new Set(Object.values(all).flatMap(o => Object.keys(o).map(k => k.split("|")[1])))];
@@ -306,10 +374,30 @@ async function main() {
   for (const a of unnamed) meta.appNames[a] = named[a] || null;
   writeFileSync(metaPath, JSON.stringify(meta));
 
-  const data = buildData({ agg: all, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days, tz: TZ, generatedAt: new Date().toISOString() });
+  // Groups: name, icon and member count of every group active in the window, refreshed once a day;
+  // member counts are kept per day so the Groups page can show the weekly change.
+  const gPath = join(root, "data", "group_meta.json");
+  const gm = existsSync(gPath) ? JSON.parse(readFileSync(gPath, "utf8")) : { info: {}, members: {} };
+  const seenGroups = [...new Set(Object.values(all).flatMap(o => Object.keys(o).map(k => k.split("|")[3]).filter(Boolean)))];
+  const gTodo = gm.day === todayStr ? seenGroups.filter(g => !(g in gm.info)) : seenGroups;
+  if (gTodo.length) {
+    console.log(`  fetching info for ${gTodo.length} groups`);
+    for (const [g, x] of Object.entries(await fetchGroupInfo(gTodo, console.log))) {
+      gm.info[g] = x;
+      if (x.members != null) (gm.members[g] ||= {})[todayStr] = x.members;
+    }
+    gm.day = todayStr;
+  }
+  const seenSet = new Set(seenGroups);
+  for (const g of Object.keys(gm.info)) if (!seenSet.has(g)) { delete gm.info[g]; delete gm.members[g]; }
+  for (const h of Object.values(gm.members)) for (const d of Object.keys(h)) if (d < days[0]) delete h[d];
+  writeFileSync(gPath, JSON.stringify(gm));
+
+  const data = buildData({ agg: flat, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days, tz: TZ, generatedAt: new Date().toISOString() });
   mkdirSync(join(root, "site"), { recursive: true });
   writeFileSync(join(root, "site", "data.json"), JSON.stringify(data));
-  writeFileSync(join(root, "site", "users.json"), JSON.stringify(buildUsers({ agg: all, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days })));
+  writeFileSync(join(root, "site", "users.json"), JSON.stringify(buildUsers({ agg: flat, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days })));
+  writeFileSync(join(root, "site", "groups.json"), JSON.stringify(buildGroups({ agg: all, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days, groupInfo: gm.info, members: gm.members })));
   console.log(`Wrote site/data.json (${Object.keys(all).length} days with data)`);
 }
 
