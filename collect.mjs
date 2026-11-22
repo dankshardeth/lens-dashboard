@@ -129,6 +129,36 @@ export async function fetchSince(fromDay, tz, log = () => {}) {
   return { agg, handles, scores };
 }
 
+// New accounts per day. Nearly every new account mints a username right away, so the accounts behind the
+// usernames minted since fromDay are looked up and each is counted once, on the day it was created.
+// Returns { byDay: {day: [address, ...]} }. Accounts that never mint a username are not seen.
+export async function fetchNewAccounts(fromDay, tz, log = () => {}) {
+  const linked = new Set();
+  let cursor = null, pages = 0;
+  for (;;) {
+    const d = await gql(`query U($c: Cursor){ usernames(request:{orderBy: LAST_MINTED, pageSize: FIFTY, cursor: $c}){ items{ timestamp linkedTo } pageInfo{ next } } }`, { c: cursor });
+    const items = d.usernames.items;
+    pages++;
+    let passed = false;
+    for (const u of items) {
+      if (dayOf(u.timestamp, tz) < fromDay) { passed = true; continue; }
+      if (u.linkedTo) linked.add(u.linkedTo.toLowerCase());
+    }
+    cursor = d.usernames.pageInfo.next;
+    if (passed || !cursor || !items.length) break;
+  }
+  const byDay = {}, addrs = [...linked];
+  for (let i = 0; i < addrs.length; i += 50) {
+    const r = await gql(`query S($a: [EvmAddress!]!){ accountsBulk(request:{addresses:$a}){ address createdAt } }`, { a: addrs.slice(i, i + 50) });
+    for (const a of r.accountsBulk) {
+      const day = dayOf(a.createdAt, tz);
+      if (day >= fromDay) (byDay[day] ||= []).push(a.address.toLowerCase());
+    }
+  }
+  log(`  new accounts: ${addrs.length} accounts behind ${pages} pages of usernames, ${Object.values(byDay).flat().length} created since ${fromDay}`);
+  return { byDay };
+}
+
 // Current Lens account score for many accounts (the API takes 50 per request)
 export async function fetchScores(accounts, log = () => {}) {
   const out = {};
@@ -393,7 +423,35 @@ async function main() {
   for (const h of Object.values(gm.members)) for (const d of Object.keys(h)) if (d < days[0]) delete h[d];
   writeFileSync(gPath, JSON.stringify(gm));
 
+  // New accounts: one file per day with the addresses created that day (data/new/), current scores refreshed daily
+  const newDir = join(root, "data", "new");
+  mkdirSync(newDir, { recursive: true });
+  const haveNew = new Set(readdirSync(newDir).map(f => f.replace(".json", "")));
+  const newMissing = days.filter(d => !haveNew.has(d) && d < refetchFrom);
+  const newFrom = newMissing.length ? newMissing[0] : refetchFrom;
+  try {
+    const { byDay } = await fetchNewAccounts(newFrom, TZ, console.log);
+    for (const d of days.filter(d => d >= newFrom)) writeFileSync(join(newDir, d + ".json"), JSON.stringify(byDay[d] || []));
+  } catch (e) { console.log("  new accounts skipped: " + e.message); }
+  for (const f of readdirSync(newDir)) if (f.replace(".json", "") < days[0]) unlinkSync(join(newDir, f));
+  const newAll = {};
+  for (const d of days) { const p = join(newDir, d + ".json"); if (existsSync(p)) newAll[d] = JSON.parse(readFileSync(p, "utf8")); }
+  const nsPath = join(root, "data", "new_scores.json");
+  const ns = existsSync(nsPath) ? JSON.parse(readFileSync(nsPath, "utf8")) : { day: null, s: {} };
+  const newAccts = [...new Set(Object.values(newAll).flat())];
+  const nTodo = ns.day === todayStr ? newAccts.filter(a => !(a in ns.s)) : newAccts;
+  if (nTodo.length) {
+    console.log(`  fetching scores for ${nTodo.length} new accounts`);
+    Object.assign(ns.s, await fetchScores(nTodo, console.log));
+    ns.day = todayStr;
+  }
+  const keepNew = new Set(newAccts);
+  for (const a of Object.keys(ns.s)) if (!keepNew.has(a)) delete ns.s[a];
+  writeFileSync(nsPath, JSON.stringify(ns));
+
   const data = buildData({ agg: flat, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days, tz: TZ, generatedAt: new Date().toISOString() });
+  // new accounts per day for each score threshold (current scores; unscored accounts count only under "any")
+  data.new_accounts = Object.keys(newAll).length ? Object.fromEntries(MIN_SCORES.map(m => [m, days.map(d => newAll[d] ? newAll[d].filter(a => m === 0 || (typeof ns.s[a] === "number" && ns.s[a] >= m)).length : null)])) : null;
   mkdirSync(join(root, "site"), { recursive: true });
   writeFileSync(join(root, "site", "data.json"), JSON.stringify(data));
   writeFileSync(join(root, "site", "users.json"), JSON.stringify(buildUsers({ agg: flat, handles: meta.handles, appNames: meta.appNames, scores: meta.scores, days })));
