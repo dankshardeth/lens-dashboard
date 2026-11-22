@@ -220,6 +220,11 @@ tfoot .sortbtn.on{background:var(--accent);color:var(--accent-ink);box-shadow:no
     </div>
   </div>
 
+  <div class="card" id="newCard" hidden>
+    <div class="head"><div><h2>Daily new accounts</h2><div class="sub" id="newSub"></div></div></div>
+    <div class="chart"><canvas id="cNew"></canvas></div>
+  </div>
+
   <div class="card">
     <div class="head">
       <div><h2>Most active accounts</h2><div class="sub" id="topSub"></div></div>
@@ -289,6 +294,8 @@ function renderTiles() {
   let html = tile("All content", sum(all, w), sum(all, pw));
   for (const kind of KINDS) html += tile(KIND_LABEL[kind], sum(D.daily[k][kind], w), sum(D.daily[k][kind], pw));
   html += tile("Active posters", D.range_active[String(r)]?.[k], null, r === 1 ? "unique accounts yesterday" : `unique accounts in ${r} days`);
+  const na = RAW.new_accounts?.[0];
+  if (na) html += tile("New accounts", sum(na, w), sum(na, pw), k !== "all" ? "all clients, not split by client" : null);
   document.getElementById("tiles").innerHTML = html;
 }
 
@@ -372,6 +379,13 @@ function renderCharts() {
   const one = k === "all" ? css("--accent") : appColor(k);
   draw("cActive", "line", [lineDs("Active posters", D.daily[k].active, one)], false);
   document.getElementById("activeSub").textContent = `${appName(k)} · unique accounts that published content that day`;
+
+  const na = RAW.new_accounts?.[0];
+  document.getElementById("newCard").hidden = !na;
+  if (na) {
+    draw("cNew", "bar", [barDs("New accounts", na.map(v => v || 0), css("--accent"))], false);
+    document.getElementById("newSub").textContent = `Accounts created per day · all clients · not affected by the score filter · ${sub}`;
+  }
 
 }
 
@@ -600,6 +614,7 @@ async function init() {
     Client = the Lens app recorded with each piece of content on Lens Chain. Deleted posts are not included.
     Type: repost, comment (reply to a post), quote, otherwise post.
     Active posters = unique accounts that published anything in the day or period (period figures are counted separately, not summed from days).
+    New accounts = accounts created that day, found through the usernames minted on Lens (nearly every new account gets one at sign-up); accounts without a username are not counted. The score filter does not apply here: Lens has not scored accounts created since spring 2026, so every new account has score 0.
     Summary figures and the top list cover full days only ("1 day" = yesterday); today appears on the charts only.
     <br><b>Filters:</b> "Hide spam apps" removes content from apps flagged as automated spam (${esc((D.spam_apps || []).join(", ") || "none")}).
     "Min. account score" uses the Lens account score (1–10,000), an ML estimate of how likely an account is genuine, based on its follower graph and content.
